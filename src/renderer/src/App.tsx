@@ -165,6 +165,19 @@ function Home({
         >
           Markdownをここにドロップ<span>.md / .markdown</span>
         </button>
+        {history.length > 0 && (
+          <section className="home-section">
+            <h2>最近の文書</h2>
+            <div className="recent-list">
+              {history.slice(0, 16).map((item) => (
+                <button key={item.path} onClick={() => onRecent(item.path)}>
+                  <strong>{item.path.split("/").pop()}</strong>
+                  <span>{item.path}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
         <section className="home-section">
           <div className="home-section-heading">
             <h2>テーマ</h2>
@@ -190,19 +203,6 @@ function Home({
             ))}
           </div>
         </section>
-        {history.length > 0 && (
-          <section className="home-section">
-            <h2>最近の文書</h2>
-            <div className="recent-list">
-              {history.slice(0, 5).map((item) => (
-                <button key={item.path} onClick={() => onRecent(item.path)}>
-                  <strong>{item.path.split("/").pop()}</strong>
-                  <span>{item.path}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
       </div>
     </main>
   );
