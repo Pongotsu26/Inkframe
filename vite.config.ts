@@ -8,14 +8,19 @@ const resolvedPagedPolyfillId = `\0${pagedPolyfillId}`;
 
 export default defineConfig({
   root: "src/renderer",
-  plugins: [react(), {
-    name: "pagedjs-polyfill-source",
-    resolveId(id) { return id === pagedPolyfillId ? resolvedPagedPolyfillId : undefined; },
-    load(id) {
-      if (id !== resolvedPagedPolyfillId) return undefined;
-      return `export default ${JSON.stringify(readFileSync(resolve("node_modules/pagedjs/dist/paged.polyfill.min.js"), "utf8"))};`;
-    }
-  }],
+  plugins: [
+    react(),
+    {
+      name: "pagedjs-polyfill-source",
+      resolveId(id) {
+        return id === pagedPolyfillId ? resolvedPagedPolyfillId : undefined;
+      },
+      load(id) {
+        if (id !== resolvedPagedPolyfillId) return undefined;
+        return `export default ${JSON.stringify(readFileSync(resolve("node_modules/pagedjs/dist/paged.polyfill.min.js"), "utf8"))};`;
+      },
+    },
+  ],
   base: "./",
-  build: { outDir: "../../desktop/renderer-dist", emptyOutDir: true }
+  build: { outDir: "../../desktop/renderer-dist", emptyOutDir: true },
 });

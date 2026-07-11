@@ -5,12 +5,16 @@ import path from "node:path";
 const candidates = [
   process.env.DEVELOPER_DIR,
   "/Applications/Xcode.app/Contents/Developer",
-  "/Applications/Xcode-beta.app/Contents/Developer"
+  "/Applications/Xcode-beta.app/Contents/Developer",
 ].filter(Boolean);
 
-const developerDir = candidates.find(candidate => existsSync(path.join(candidate, "usr/bin/actool")));
+const developerDir = candidates.find((candidate) =>
+  existsSync(path.join(candidate, "usr/bin/actool")),
+);
 if (!developerDir) {
-  console.error("Xcode 26以降が見つかりません。Xcode.app または Xcode-beta.app を /Applications に配置してください。");
+  console.error(
+    "Xcode 26以降が見つかりません。Xcode.app または Xcode-beta.app を /Applications に配置してください。",
+  );
   process.exit(1);
 }
 
@@ -22,5 +26,8 @@ function run(command, args, env = process.env) {
 
 console.log(`Using Xcode: ${developerDir}`);
 run("pnpm", ["build"]);
-const builderArgs = process.argv.slice(2).filter(arg => arg !== "--");
-run("pnpm", ["exec", "electron-builder", "--mac", ...builderArgs], { ...process.env, DEVELOPER_DIR: developerDir });
+const builderArgs = process.argv.slice(2).filter((arg) => arg !== "--");
+run("pnpm", ["exec", "electron-builder", "--mac", ...builderArgs], {
+  ...process.env,
+  DEVELOPER_DIR: developerDir,
+});

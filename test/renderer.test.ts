@@ -11,7 +11,11 @@ describe("Phase 2 renderer utilities", () => {
     await writeFile(join(directory, "a.md"), "# A");
     await writeFile(join(directory, "nested", "b.markdown"), "# B");
     await writeFile(join(directory, "nested", "skip.txt"), "skip");
-    expect((await markdownFilesIn(directory)).map((path) => path.replace(directory, ""))).toEqual(["/a.md", "/nested/b.markdown"]);
+    expect(
+      (await markdownFilesIn(directory)).map((path) =>
+        path.replace(directory, ""),
+      ),
+    ).toEqual(["/a.md", "/nested/b.markdown"]);
   });
 
   it("許可された用紙サイズだけを受け入れる", () => {

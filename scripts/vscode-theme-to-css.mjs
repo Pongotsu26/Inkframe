@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const inputPath = process.argv[2] ?? "design/vscode-dark.generated.json";
-const outputPath = process.argv[3] ?? "src/renderer/src/styles/vscode-theme.css";
+const outputPath =
+  process.argv[3] ?? "src/renderer/src/styles/vscode-theme.css";
 
 function parseJsonc(source) {
   let output = "";
@@ -18,7 +19,11 @@ function parseJsonc(source) {
       else if (char === '"') inString = false;
       continue;
     }
-    if (char === '"') { inString = true; output += char; continue; }
+    if (char === '"') {
+      inString = true;
+      output += char;
+      continue;
+    }
     if (char === "/" && next === "/") {
       while (index < source.length && source[index] !== "\n") index += 1;
       output += "\n";
@@ -26,7 +31,11 @@ function parseJsonc(source) {
     }
     if (char === "/" && next === "*") {
       index += 2;
-      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) index += 1;
+      while (
+        index < source.length &&
+        !(source[index] === "*" && source[index + 1] === "/")
+      )
+        index += 1;
       index += 1;
       continue;
     }
@@ -38,7 +47,8 @@ function parseJsonc(source) {
 const theme = parseJsonc(fs.readFileSync(inputPath, "utf8"));
 const colors = theme.colors ?? {};
 const get = (keys, fallback) => {
-  for (const key of Array.isArray(keys) ? keys : [keys]) if (colors[key]) return colors[key];
+  for (const key of Array.isArray(keys) ? keys : [keys])
+    if (colors[key]) return colors[key];
   return fallback;
 };
 
@@ -55,14 +65,20 @@ const tokens = {
   "--bg-preview": get("editor.background", "#1e1e1e"),
   "--bg-paper": "#ffffff",
   "--paper-shadow": "0 12px 32px rgba(0, 0, 0, 0.45)",
-  "--border-subtle": get(["sideBar.border", "panel.border", "contrastBorder"], "#2b2b2b"),
+  "--border-subtle": get(
+    ["sideBar.border", "panel.border", "contrastBorder"],
+    "#2b2b2b",
+  ),
   "--border-strong": get("focusBorder", "#007fd4"),
   "--text-primary": get(["foreground", "editor.foreground"], "#cccccc"),
   "--text-secondary": get("descriptionForeground", "#a7a7a7"),
   "--text-muted": get("disabledForeground", "#858585"),
   "--text-disabled": get("disabledForeground", "#5f5f5f"),
   "--text-on-accent": get("button.foreground", "#ffffff"),
-  "--accent": get(["button.background", "focusBorder", "activityBarBadge.background"], "#007acc"),
+  "--accent": get(
+    ["button.background", "focusBorder", "activityBarBadge.background"],
+    "#007acc",
+  ),
   "--accent-hover": get("button.hoverBackground", "#0e639c"),
   "--accent-soft": "rgba(57, 148, 188, 0.18)",
   "--focus-ring": get("focusBorder", "#007fd4"),
@@ -78,11 +94,21 @@ const tokens = {
   "--input-border": get("input.border", "#3c3c3c"),
   "--input-border-focus": get("focusBorder", "#007fd4"),
   "--tab-active-border": get(["tab.activeBorder", "focusBorder"], "#007acc"),
-  "--scrollbar-thumb": get("scrollbarSlider.background", "rgba(121, 121, 121, 0.4)"),
-  "--scrollbar-thumb-hover": get("scrollbarSlider.hoverBackground", "rgba(100, 100, 100, 0.7)")
+  "--scrollbar-thumb": get(
+    "scrollbarSlider.background",
+    "rgba(121, 121, 121, 0.4)",
+  ),
+  "--scrollbar-thumb-hover": get(
+    "scrollbarSlider.hoverBackground",
+    "rgba(100, 100, 100, 0.7)",
+  ),
 };
 
-const css = `/* Generated from ${path.basename(inputPath)}. Do not edit directly. */\n:root {\n  color-scheme: dark;\n${Object.entries(tokens).map(([key, value]) => `  ${key}: ${value};`).join("\n")}\n}\n`;
+const css = `/* Generated from ${path.basename(inputPath)}. Do not edit directly. */\n:root {\n  color-scheme: dark;\n${Object.entries(
+  tokens,
+)
+  .map(([key, value]) => `  ${key}: ${value};`)
+  .join("\n")}\n}\n`;
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, css, "utf8");
 console.log(`Generated ${outputPath}`);

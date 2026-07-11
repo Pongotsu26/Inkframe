@@ -9,7 +9,7 @@ export const CODE_THEMES = [
   { id: "github-light", name: "GitHub Light" },
   { id: "nord", name: "Nord" },
   { id: "one-dark-pro", name: "One Dark Pro" },
-  { id: "dracula", name: "Dracula" }
+  { id: "dracula", name: "Dracula" },
 ] as const;
 
 export interface FontOptions {
