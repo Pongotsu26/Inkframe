@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from "node:fs";
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile, copyFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -8,19 +8,34 @@ import { execFile } from "node:child_process";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
 import matter from "gray-matter";
 import { listFonts } from "../fonts.js";
+import { inspectMarkdown } from "../markdown-inspection.js";
 import { markdownToHtml } from "../html.js";
 import { convertMarkdown, resolvedConfig, type ConvertOptions } from "../renderer.js";
-import { listThemes } from "../themes.js";
+import { listThemes, themeCssPath, type ThemeInfo } from "../themes.js";
 
 interface HistoryItem { path: string; outputPath?: string; openedAt: string; }
 interface Template { id: string; name: string; options: ConvertOptions; updatedAt: string; }
 interface SettingsHistory { options: ConvertOptions; usedAt: string; }
+interface AppSettings { defaultTheme?: string; }
 let mainWindow: BrowserWindow | undefined;
 let activeWatcher: FSWatcher | undefined;
 const execFileAsync = promisify(execFile);
 function historyPath(): string { return join(app.getPath("userData"), "history.json"); }
 function templatesPath(): string { return join(app.getPath("userData"), "templates.json"); }
 function settingsHistoryPath(): string { return join(app.getPath("userData"), "settings-history.json"); }
+function customThemesPath(): string { return join(app.getPath("userData"), "themes"); }
+function appSettingsPath(): string { return join(app.getPath("userData"), "settings.json"); }
+async function appSettings(): Promise<AppSettings> { try { const settings = JSON.parse(await readFile(appSettingsPath(), "utf8")) as AppSettings; return { ...settings, defaultTheme: settings.defaultTheme || "github" }; } catch { return { defaultTheme: "github" }; } }
+async function writeAppSettings(value: AppSettings): Promise<void> { await mkdir(dirname(appSettingsPath()), { recursive: true }); await writeFile(appSettingsPath(), JSON.stringify(value, null, 2)); }
+function themeSlug(name: string): string { return name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "") || `theme-${Date.now()}`; }
+async function uniqueThemeDirectory(name: string): Promise<string> { const base = themeSlug(name); let suffix = 1; let target = join(customThemesPath(), base); while (true) { try { await stat(target); target = join(customThemesPath(), `${base}-${++suffix}`); } catch { return target; } } }
+async function createCustomTheme(name: string, sourceTheme = "github"): Promise<ThemeInfo> {
+  const target = await uniqueThemeDirectory(name); await mkdir(target, { recursive: true });
+  await copyFile(themeCssPath(sourceTheme), join(target, "theme.css"));
+  const metadata = { name: name.trim() || "新しいテーマ", description: "カスタムテーマ" };
+  await writeFile(join(target, "theme.json"), JSON.stringify(metadata, null, 2));
+  return { id: join(target, "theme.css"), ...metadata, custom: true, cssPath: join(target, "theme.css") };
+}
 async function history(): Promise<HistoryItem[]> { try { return JSON.parse(await readFile(historyPath(), "utf8")) as HistoryItem[]; } catch { return []; } }
 async function record(item: Omit<HistoryItem, "openedAt">): Promise<void> {
   const entries = (await history()).filter((entry) => entry.path !== item.path);
@@ -45,21 +60,6 @@ async function chooseFolder(): Promise<{ path: string; content: string } | undef
   const markdown = entries.find(entry => entry.isFile() && /\.(?:md|markdown)$/i.test(entry.name));
   if (!markdown) { await dialog.showMessageBox(mainWindow!, { type: "info", message: "Markdownファイルが見つかりません", detail: "選択したフォルダの直下に .md または .markdown ファイルがありません。" }); return undefined; }
   const path = join(folder, markdown.name); const content = await readFile(path, "utf8"); await record({ path }); return { path, content };
-}
-function inspectMarkdown(content: string) {
-  const outline: Array<{ level: number; text: string; line: number }> = [];
-  const issues: Array<{ severity: "error" | "warning" | "info"; message: string; line: number; column: number }> = [];
-  const assets: Array<{ path: string; line: number; kind: string }> = [];
-  const lines = content.split(/\r?\n/);
-  lines.forEach((line, index) => {
-    const heading = /^(#{1,6})\s+(.+)/.exec(line);
-    if (heading) outline.push({ level: heading[1].length, text: heading[2].replace(/\s+#+\s*$/, ""), line: index + 1 });
-    for (const match of line.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) assets.push({ path: match[1], line: index + 1, kind: extname(match[1]).slice(1).toUpperCase() || "FILE" });
-    if (/\bTODO\b/i.test(line)) issues.push({ severity: "info", message: "TODO が残っています", line: index + 1, column: line.search(/TODO/i) + 1 });
-    if (/^#{1,6}(?!\s)/.test(line)) issues.push({ severity: "warning", message: "見出し記号の後に空白が必要です", line: index + 1, column: 1 });
-  });
-  if (!outline.length && content.trim()) issues.push({ severity: "info", message: "見出しがありません", line: 1, column: 1 });
-  return { outline, issues, assets };
 }
 async function openEditor(path: string, line = 1, column = 1): Promise<{ ok: boolean; method?: string; message?: string }> {
   const target = `${path}:${line}:${column}`;
@@ -129,7 +129,24 @@ app.whenReady().then(async () => {
   ipcMain.handle("file:reveal", (_event, path: string) => { shell.showItemInFolder(path); });
   ipcMain.handle("file:open", (_event, path: string) => shell.openPath(path));
   ipcMain.handle("clipboard:write", (_event, value: string) => clipboard.writeText(value));
-  ipcMain.handle("fonts:list", listFonts); ipcMain.handle("themes:list", listThemes); ipcMain.handle("history:list", history);
+  ipcMain.handle("fonts:list", listFonts); ipcMain.handle("themes:list", () => listThemes(customThemesPath())); ipcMain.handle("history:list", history);
+  ipcMain.handle("themes:create", async (_event, name: string, sourceTheme?: string) => createCustomTheme(name, sourceTheme));
+  ipcMain.handle("themes:edit", async (_event, cssPath: string) => openEditor(cssPath));
+  ipcMain.handle("themes:delete", async (_event, cssPath: string) => { const directory = dirname(cssPath); if (dirname(directory) !== customThemesPath()) throw new Error("カスタムテーマだけを削除できます"); await rm(directory, { recursive: true, force: true }); });
+  ipcMain.handle("themes:export", async (_event, cssPath: string) => {
+    const metadata = JSON.parse(await readFile(join(dirname(cssPath), "theme.json"), "utf8")); const css = await readFile(cssPath, "utf8");
+    const result = await dialog.showSaveDialog(mainWindow!, { title: "テーマを書き出す", defaultPath: `${themeSlug(metadata.name)}.inkframe-theme.json`, filters: [{ name: "Inkframe Theme", extensions: ["json"] }] });
+    if (result.canceled || !result.filePath) return false; await writeFile(result.filePath, JSON.stringify({ format: "inkframe-theme", version: 1, metadata, css }, null, 2)); return true;
+  });
+  ipcMain.handle("themes:import", async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, { title: "テーマを読み込む", properties: ["openFile"], filters: [{ name: "Inkframe Theme", extensions: ["json", "css"] }] }); if (result.canceled || !result.filePaths[0]) return undefined;
+    const source = result.filePaths[0]; const raw = await readFile(source, "utf8"); let metadata: { name: string; description?: string }; let css: string;
+    if (extname(source).toLowerCase() === ".css") { metadata = { name: basename(source, ".css"), description: "インポートしたテーマ" }; css = raw; }
+    else { const bundle = JSON.parse(raw) as { format?: string; metadata?: { name?: string; description?: string }; css?: string }; if (bundle.format !== "inkframe-theme" || typeof bundle.css !== "string") throw new Error("Inkframeテーマファイルではありません"); metadata = { name: bundle.metadata?.name || basename(source, ".json"), description: bundle.metadata?.description }; css = bundle.css; }
+    const target = await uniqueThemeDirectory(metadata.name); await mkdir(target, { recursive: true }); await writeFile(join(target, "theme.css"), css); await writeFile(join(target, "theme.json"), JSON.stringify(metadata, null, 2)); return { id: join(target, "theme.css"), ...metadata, custom: true, cssPath: join(target, "theme.css") };
+  });
+  ipcMain.handle("settings:get", appSettings);
+  ipcMain.handle("settings:set-default-theme", async (_event, theme?: string) => { const settings = await appSettings(); settings.defaultTheme = theme; await writeAppSettings(settings); return settings; });
   ipcMain.handle("templates:list", templates);
   ipcMain.handle("templates:save", async (_event, name: string, options: ConvertOptions) => {
     const id = name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || `template-${Date.now()}`;

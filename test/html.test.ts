@@ -31,6 +31,16 @@ describe("local fonts", () => {
 });
 
 describe("extended Markdown", () => {
+  it("絶対パスのカスタムテーマ CSS を読み込む", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "inkframe-custom-theme-"));
+    const input = join(directory, "sample.md");
+    const theme = join(directory, "theme.css");
+    await writeFile(input, "# Custom theme");
+    await writeFile(theme, ".markdown-body { color: rgb(1, 2, 3); }");
+    const document = await markdownToHtml(input, { theme });
+    expect(document.html).toContain(".markdown-body { color: rgb(1, 2, 3); }");
+  });
+
   it("定義リストをセマンティックな HTML に変換する", () => {
     const result = transformDefinitionLists("用語\n: 説明 1\n: 説明 2\n");
     expect(result).toBe("<dl><dt>用語</dt><dd>説明 1</dd><dd>説明 2</dd></dl>\n");

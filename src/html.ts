@@ -12,6 +12,7 @@ import remarkRehype from "remark-rehype";
 import rehypeKatex from "rehype-katex";
 import rehypeStringify from "rehype-stringify";
 import { DEFAULT_CODE_THEME, type MdpdfConfig } from "./types.js";
+import { themeCssPath } from "./themes.js";
 
 const require = createRequire(import.meta.url);
 const FALLBACK_FONTS = '"Noto Sans JP", "BIZ UDPGothic", system-ui, sans-serif';
@@ -174,7 +175,7 @@ async function highlightCodeBlocks(content: string, theme: string): Promise<stri
 }
 
 async function loadTheme(theme: string): Promise<string> {
-  const themePath = join(dirname(import.meta.dirname), "themes", theme, "theme.css");
+  const themePath = themeCssPath(theme);
   try {
     return await readFile(themePath, "utf8");
   } catch {
