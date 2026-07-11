@@ -68,11 +68,11 @@ program.command("fonts").description("利用可能なローカルフォントを
 });
 
 program.command("build <inputs...>").description("複数の Markdown を 1 つの PDF に結合").requiredOption("-o, --output <path>", "出力 PDF のパス")
-  .option("--theme <name>").option("--paper <size>").option("--toc").option("--page-number").option("--compress").option("--image-optimize").option("--image-quality <1-100>", "画像最適化の品質", Number)
+  .option("--theme <name>").option("--code-theme <name>").option("--paper <size>").option("--toc").option("--page-number").option("--compress").option("--image-optimize").option("--image-quality <1-100>", "画像最適化の品質", Number)
   .action(async (inputs: string[], options: CliOptions) => report(await buildMarkdownFiles(inputs, options.output!, optionsConfig(options))));
 
 program.command("batch <directory>").description("フォルダ内の Markdown を再帰的に PDF 化").requiredOption("--out <directory>", "出力先ディレクトリ")
-  .option("--theme <name>").option("--paper <size>").option("--toc").option("--page-number").option("--compress").option("--image-optimize").option("--image-quality <1-100>", "画像最適化の品質", Number)
+  .option("--theme <name>").option("--code-theme <name>").option("--paper <size>").option("--toc").option("--page-number").option("--compress").option("--image-optimize").option("--image-quality <1-100>", "画像最適化の品質", Number)
   .action(async (directory: string, options: CliOptions & { out: string }) => {
     const files = await markdownFilesIn(directory);
     if (files.length === 0) throw new Error("Markdown ファイルが見つかりません。");
@@ -82,7 +82,7 @@ program.command("batch <directory>").description("フォルダ内の Markdown �
 program.command("merge <inputs...>").description("生成済み PDF を 1 つに結合").requiredOption("-o, --output <path>", "出力 PDF のパス")
   .action(async (inputs: string[], options: { output: string }) => { await mergePdfs(inputs.map((input) => resolve(input)), resolve(options.output)); console.log(`PDF を結合しました: ${resolve(options.output)}`); });
 
-program.command("watch <input>").description("保存時に PDF を再生成").option("-o, --output <path>", "出力 PDF のパス").option("--theme <name>").option("--paper <size>").option("--toc").option("--page-number").option("--compress")
+program.command("watch <input>").description("保存時に PDF を再生成").option("-o, --output <path>", "出力 PDF のパス").option("--theme <name>").option("--code-theme <name>").option("--paper <size>").option("--toc").option("--page-number").option("--compress")
   .action(async (input: string, options: CliOptions) => {
     let timer: NodeJS.Timeout | undefined;
     const generate = async (): Promise<void> => {

@@ -72,6 +72,7 @@ PDFプレビューはアプリに同梱したPDF.jsで描画するため、Poppl
 主なオプション:
 
 - `--theme github|university|technical|paper|minutes|slides|ebook|monochrome|vertical-japanese|resume`: テーマを選択
+- `--code-theme github-dark|light-plus|dark-plus|github-light|nord|one-dark-pro|dracula`: コードハイライトの Shiki テーマを選択（既定: `github-dark`）
 - `--font`, `--body-font`, `--heading-font`, `--code-font`: ローカルフォントを指定
 - `--paper A4|A5|Letter`, `--margin "20mm 18mm"`: 印刷設定
 - `--toc`, `--page-number`, `--header`, `--footer`: 文書構成とヘッダー・フッター
@@ -88,6 +89,7 @@ PDFプレビューはアプリに同梱したPDF.jsで描画するため、Poppl
 ```json
 {
   "theme": "university",
+  "codeTheme": "light-plus",
   "paper": "A4",
   "toc": true,
   "pageNumber": true,

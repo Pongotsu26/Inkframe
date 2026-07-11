@@ -11,10 +11,25 @@ import remarkMath from "remark-math";
 import remarkRehype from "remark-rehype";
 import rehypeKatex from "rehype-katex";
 import rehypeStringify from "rehype-stringify";
-import type { MdpdfConfig } from "./types.js";
+import { DEFAULT_CODE_THEME, type MdpdfConfig } from "./types.js";
 
 const require = createRequire(import.meta.url);
 const FALLBACK_FONTS = '"Noto Sans JP", "BIZ UDPGothic", system-ui, sans-serif';
+const CODE_BLOCK_CSS = `
+pre {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-radius: .75rem;
+}
+`;
+const LIGHT_CODE_BLOCK_CSS = `
+pre {
+  border: 1px solid #e5e7eb;
+  border-radius: .75rem;
+  background: #f9fafb !important;
+}
+`;
+const DARK_CODE_THEMES = new Set(["github-dark", "dark-plus", "nord", "one-dark-pro", "dracula"]);
 
 export interface HtmlDocument {
   html: string;
@@ -167,6 +182,10 @@ async function loadTheme(theme: string): Promise<string> {
   }
 }
 
+function codeBlockCss(theme: string): string {
+  return DARK_CODE_THEMES.has(theme) ? CODE_BLOCK_CSS : `${CODE_BLOCK_CSS}${LIGHT_CODE_BLOCK_CSS}`;
+}
+
 export async function markdownToHtml(inputPath: string, options: MdpdfConfig): Promise<HtmlDocument> {
   const source = await readFile(inputPath, "utf8");
   const parsed = matter(source);
@@ -185,7 +204,8 @@ export async function markdownToHtml(inputPath: string, options: MdpdfConfig): P
   const rendered = String(await processor
     .use(rehypeStringify, { allowDangerousHtml: true })
     .process(transformed));
-  const content = addCaptions(addHeadingIdsAndToc(await highlightCodeBlocks(sanitizeDangerousHtml(rendered), options.codeTheme ?? "github-dark"), options.toc ?? false));
+  const codeTheme = options.codeTheme ?? DEFAULT_CODE_THEME;
+  const content = addCaptions(addHeadingIdsAndToc(await highlightCodeBlocks(sanitizeDangerousHtml(rendered), codeTheme), options.toc ?? false));
   const themeCss = await loadTheme(options.theme ?? "github");
   const katexCssPath = require.resolve("katex/dist/katex.min.css");
   // KaTeX ships font URLs relative to its CSS file. The document base URL points
@@ -203,6 +223,6 @@ export async function markdownToHtml(inputPath: string, options: MdpdfConfig): P
   return {
     frontmatter,
     mermaidScriptPath: require.resolve("mermaid/dist/mermaid.min.js"),
-    html: `<!doctype html><html lang="${escapeAttribute(language)}"><head><meta charset="utf-8"><base href="${pathToFileURL(`${dirname(inputPath)}/`).href}"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="author" content="${escapeAttribute(metadata.author ?? "")}"><meta name="subject" content="${escapeAttribute(metadata.subject ?? "")}"><meta name="keywords" content="${escapeAttribute(keywords ?? "")}"><title>${escapeAttribute(title)}</title><style>${katexCss}\n${themeCss}\n${customCss}\n:root { --body-font: ${bodyFont}; --heading-font: ${headingFont}; --code-font: ${codeFont}; }</style></head><body>${cover(metadata)}<main class="markdown-body">${content}</main></body></html>`
+    html: `<!doctype html><html lang="${escapeAttribute(language)}"><head><meta charset="utf-8"><base href="${pathToFileURL(`${dirname(inputPath)}/`).href}"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="author" content="${escapeAttribute(metadata.author ?? "")}"><meta name="subject" content="${escapeAttribute(metadata.subject ?? "")}"><meta name="keywords" content="${escapeAttribute(keywords ?? "")}"><title>${escapeAttribute(title)}</title><style>${katexCss}\n${themeCss}\n${codeBlockCss(codeTheme)}\n${customCss}\n:root { --body-font: ${bodyFont}; --heading-font: ${headingFont}; --code-font: ${codeFont}; }</style></head><body>${cover(metadata)}<main class="markdown-body">${content}</main></body></html>`
   };
 }

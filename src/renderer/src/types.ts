@@ -1,5 +1,5 @@
 export interface ConvertOptions {
-  theme?: string; paper?: string; margin?: string; toc?: boolean; pageNumber?: boolean; cover?: boolean;
+  theme?: string; codeTheme?: string; paper?: string; margin?: string; toc?: boolean; pageNumber?: boolean; cover?: boolean;
   orientation?: "portrait" | "landscape"; font?: { body?: string; heading?: string; code?: string };
 }
 export interface DocumentFile { path: string; content: string }

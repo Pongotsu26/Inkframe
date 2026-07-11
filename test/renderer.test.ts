@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { markdownFilesIn, paper } from "../src/renderer.js";
+import { markdownFilesIn, paper, resolvedConfig } from "../src/renderer.js";
 
 describe("Phase 2 renderer utilities", () => {
   it("フォルダ内の Markdown を再帰的に列挙する", async () => {
@@ -18,5 +18,12 @@ describe("Phase 2 renderer utilities", () => {
     expect(paper("A4")).toBe("A4");
     expect(paper("Letter")).toBe("Letter");
     expect(() => paper("B5")).toThrow("用紙サイズ");
+  });
+
+  it("コードテーマの既定値を維持する", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mdpdf-config-"));
+    const input = join(directory, "sample.md");
+    await writeFile(input, "# Sample");
+    expect((await resolvedConfig(input)).codeTheme).toBe("github-dark");
   });
 });

@@ -1,5 +1,17 @@
 export type Paper = "A4" | "A5" | "Letter";
 
+export const DEFAULT_CODE_THEME = "github-dark";
+
+export const CODE_THEMES = [
+  { id: "github-dark", name: "GitHub Dark" },
+  { id: "light-plus", name: "Light Plus" },
+  { id: "dark-plus", name: "Dark Plus" },
+  { id: "github-light", name: "GitHub Light" },
+  { id: "nord", name: "Nord" },
+  { id: "one-dark-pro", name: "One Dark Pro" },
+  { id: "dracula", name: "Dracula" }
+] as const;
+
 export interface FontOptions {
   body?: string;
   heading?: string;

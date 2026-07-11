@@ -7,7 +7,7 @@ import matter from "gray-matter";
 import { chromium } from "playwright";
 import { findConfig, mergeConfig } from "./config.js";
 import { markdownToHtml } from "./html.js";
-import type { MdpdfConfig, Paper } from "./types.js";
+import { DEFAULT_CODE_THEME, type MdpdfConfig, type Paper } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,7 +43,7 @@ async function readFrontmatter(inputPath: string): Promise<MdpdfConfig> {
 
 export async function resolvedConfig(inputPath: string, options: ConvertOptions = {}): Promise<MdpdfConfig> {
   return mergeConfig(
-    { theme: "github", paper: "A4", margin: "18mm", toc: false, pageNumber: false, mermaid: true, math: true },
+    { theme: "github", codeTheme: DEFAULT_CODE_THEME, paper: "A4", margin: "18mm", toc: false, pageNumber: false, mermaid: true, math: true },
     await findConfig(inputPath),
     await readFrontmatter(inputPath),
     options

@@ -92,6 +92,41 @@ describe("extended Markdown", () => {
     expect(document.html).toContain("$x^2$");
   });
 
+  it("コードハイライトテーマを指定できる", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mdpdf-html-"));
+    const input = join(directory, "code-theme.md");
+    await writeFile(input, "```ts\nconst value = 1;\n```");
+    const document = await markdownToHtml(input, { theme: "github", codeTheme: "light-plus" });
+    expect(document.html).toContain('class="shiki light-plus"');
+  });
+
+  it("コードブロックに共通の余白・枠線・背景を適用する", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mdpdf-html-"));
+    const input = join(directory, "code-block-style.md");
+    await writeFile(input, "```\ncode\n```");
+    const document = await markdownToHtml(input, { theme: "github", codeTheme: "light-plus" });
+    expect(document.html).toContain("margin-top: 1.5rem;");
+    expect(document.html).toContain("padding: 1rem;");
+    expect(document.html).toContain("border: 1px solid #e5e7eb;");
+    expect(document.html).toContain("border-radius: .75rem;");
+    expect(document.html).toContain("background: #f9fafb !important;");
+    expect(document.html).not.toContain("overflow-x: auto;");
+  });
+
+  it("dark系のコードハイライトテーマでは余白と丸みだけを適用する", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mdpdf-html-"));
+    const input = join(directory, "dark-code-block-style.md");
+    await writeFile(input, "```\ncode\n```");
+    const document = await markdownToHtml(input, { theme: "github", codeTheme: "github-dark" });
+    expect(document.html).toContain('class="shiki github-dark"');
+    expect(document.html).toContain("margin-top: 1.5rem;");
+    expect(document.html).toContain("padding: 1rem;");
+    expect(document.html).toContain("border-radius: .75rem;");
+    expect(document.html).not.toContain("overflow-x: auto;");
+    expect(document.html).not.toContain("border: 1px solid #e5e7eb;");
+    expect(document.html).not.toContain("background: #f9fafb !important;");
+  });
+
   it("実行可能な HTML を除去し、通常の HTML は残す", () => {
     const result = sanitizeDangerousHtml('<p onclick="alert(1)">本文</p><script>alert(1)</script><img src="javascript:alert(1)">');
     expect(result).toBe("<p>本文</p><img>");
