@@ -18,6 +18,17 @@ export interface FontOptions {
   code?: string;
 }
 
+export interface FontFaceOptions {
+  body?: string;
+  heading?: string;
+  code?: string;
+}
+
+export interface PageNumberFontOptions {
+  family?: string;
+  face?: string;
+}
+
 export interface FontSizeOptions {
   body?: number;
   /** Legacy value used as a fallback for every heading level. */
@@ -38,11 +49,15 @@ export interface MdpdfConfig {
   margin?: string;
   toc?: boolean;
   pageNumber?: boolean;
+  pageNumberFormat?: "current" | "current-total";
+  pageNumberFont?: PageNumberFontOptions;
   /** Render Mermaid fences as SVG in Chromium. Defaults to true. */
   mermaid?: boolean;
   /** Render inline and display TeX with KaTeX. Defaults to true. */
   math?: boolean;
   font?: FontOptions;
+  /** Exact installed font face names, used for vendor-specific weights such as L, R, M, or DB. */
+  fontFace?: FontFaceOptions;
   /** Font sizes in points. Body defaults to 10.5pt; headings use the theme unless specified. */
   fontSize?: FontSizeOptions;
   css?: string;

@@ -317,14 +317,17 @@ export async function markdownToHtml(
         "utf8",
       )
     : "";
-  const bodyFont = options.font?.body
-    ? `"${escapeAttribute(options.font.body)}", ${FALLBACK_FONTS}`
+  const bodyFontName = options.fontFace?.body ?? options.font?.body;
+  const bodyFont = bodyFontName
+    ? `"${escapeAttribute(bodyFontName)}", ${FALLBACK_FONTS}`
     : FALLBACK_FONTS;
-  const headingFont = options.font?.heading
-    ? `"${escapeAttribute(options.font.heading)}", ${bodyFont}`
+  const headingFontName = options.fontFace?.heading ?? options.font?.heading;
+  const headingFont = headingFontName
+    ? `"${escapeAttribute(headingFontName)}", ${bodyFont}`
     : bodyFont;
-  const codeFont = options.font?.code
-    ? `"${escapeAttribute(options.font.code)}", ui-monospace, monospace`
+  const codeFontName = options.fontFace?.code ?? options.font?.code;
+  const codeFont = codeFontName
+    ? `"${escapeAttribute(codeFontName)}", ui-monospace, monospace`
     : "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
   const bodyFontSize = options.fontSize?.body ?? 10.5;
   const headingFontSizeCss = ([1, 2, 3, 4, 5, 6] as const)

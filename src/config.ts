@@ -58,10 +58,22 @@ export function mergeConfig(
         ([, value]) => value !== undefined,
       ),
     );
+    const fontFace = Object.fromEntries(
+      Object.entries(config.fontFace ?? {}).filter(
+        ([, value]) => value !== undefined,
+      ),
+    );
+    const pageNumberFont = Object.fromEntries(
+      Object.entries(config.pageNumberFont ?? {}).filter(
+        ([, value]) => value !== undefined,
+      ),
+    );
     return {
       ...merged,
       ...defined,
       font: { ...merged.font, ...font },
+      fontFace: { ...merged.fontFace, ...fontFace },
+      pageNumberFont: { ...merged.pageNumberFont, ...pageNumberFont },
       fontSize: { ...merged.fontSize, ...fontSize },
     };
   }, {});

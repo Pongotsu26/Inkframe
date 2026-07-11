@@ -5,6 +5,7 @@ import type {
   ConvertOptions,
   DocumentFile,
   ExportResult,
+  FontFamily,
   HistoryItem,
   Inspection,
   PreviewHtml,
@@ -34,18 +35,11 @@ const DEFAULT_OPTIONS: ConvertOptions = {
   orientation: "portrait",
   toc: false,
   pageNumber: true,
+  pageNumberFormat: "current-total",
   cover: false,
   font: {},
   fontSize: { body: 10.5 },
 };
-const STARTER_TEMPLATES = [
-  "University Report",
-  "GitHub README",
-  "Technical Document",
-  "Meeting Notes",
-  "Resume",
-  "Blank",
-];
 type InspectorTab = "Style" | "Layout" | "Font" | "Export";
 type SideSection = "Source" | "Outline" | "Issues" | "Assets" | "History";
 
@@ -141,7 +135,7 @@ function Home({
     if (file) onDrop(file);
   };
   return (
-    <main className="home">
+    <main className={`home ${showAddButton ? "standalone-home" : ""}`}>
       {showAddButton && (
         <button
           className="home-add-document"
@@ -163,26 +157,14 @@ function Home({
           <Button onClick={onOpenFolder}>フォルダを開く</Button>
         </div>
         <button
+          type="button"
           className="drop-zone"
+          onClick={onOpen}
           onDragOver={(event) => event.preventDefault()}
           onDrop={drop}
         >
           Markdownをここにドロップ<span>.md / .markdown</span>
         </button>
-        <section className="home-section">
-          <h2>テンプレートから始める</h2>
-          <div className="template-grid">
-            {STARTER_TEMPLATES.map((name, index) => (
-              <button className="template-card" key={name} onClick={onOpen}>
-                <span className={`template-preview preview-${index % 3}`} />
-                <strong>{name}</strong>
-                <small>
-                  {index === 5 ? "自由な文書" : "整った初期スタイル"}
-                </small>
-              </button>
-            ))}
-          </div>
-        </section>
         <section className="home-section">
           <div className="home-section-heading">
             <h2>テーマ</h2>
@@ -348,11 +330,13 @@ function TopBar({
             </div>
           ))}
         </div>
-        <span
-          className={`status-dot ${watchStatus === "監視中" ? "online" : ""}`}
-        />{" "}
-        <span className="status-text">{watchStatus}</span>
-        <span className="render-status">{status}</span>
+        <div className="topbar-status">
+          <span
+            className={`status-dot ${watchStatus === "監視中" ? "online" : ""}`}
+          />
+          <span className="status-text">{watchStatus}</span>
+          <span className="render-status">{status}</span>
+        </div>
       </div>
       <div className="topbar-actions">
         <Button onClick={onOpenEditor}>VS Codeで開く</Button>
@@ -528,10 +512,30 @@ function previewDocument(
   zoom: number,
   fitOnReady: boolean,
 ): string {
+  const pageNumberContent =
+    preview.pageNumberFormat === "current"
+      ? "counter(page)"
+      : 'counter(page) "/" counter(pages)';
+  const pageNumberRule = preview.pageNumber
+    ? `@bottom-center { content: ${pageNumberContent}; color: #666; font-family: ${JSON.stringify(preview.pageNumberFont || "sans-serif")}; font-size: 8pt; }`
+    : "";
   const support = `<style id="inkframe-preview-style">
-@page { size: ${preview.paper} ${preview.orientation}; margin: ${preview.margin}; }
+@page { size: ${preview.paper} ${preview.orientation}; margin: ${preview.margin}; ${pageNumberRule} }
 html { visibility: hidden; background: #e8e8e8; } body { margin: 0; background: #e8e8e8; }
 .pagebreak { break-before: page !important; break-after: auto !important; page-break-before: always !important; page-break-after: auto !important; }
+pre, pre.shiki {
+  max-height: none !important;
+  overflow: visible !important;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  break-inside: auto !important;
+  page-break-inside: auto !important;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  orphans: 1;
+  widows: 1;
+}
+pre code, pre.shiki code { white-space: inherit; overflow-wrap: inherit; }
 .pagedjs_pages { box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 28px; min-width: 100%; padding: 34px 24px 80px; width: max-content; }
 .pagedjs_page { flex: none; margin: 0 !important; background: white; box-shadow: 0 2px 12px rgba(0,0,0,.18); }
 </style><script>
@@ -702,20 +706,31 @@ function PdfPreviewPane({
 function FontPicker({
   label,
   value,
+  face,
   fonts,
   sample,
   onChange,
+  onFaceChange,
 }: {
   label: string;
   value?: string;
-  fonts: string[];
+  face?: string;
+  fonts: FontFamily[];
   sample: string;
   onChange: (value: string) => void;
+  onFaceChange: (value: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const filtered = fonts
-    .filter((font) => font.toLowerCase().includes(query.toLowerCase()))
+  const matchingFonts = fonts
+    .filter((font) => font.family.toLowerCase().includes(query.toLowerCase()))
     .slice(0, 60);
+  const selectedFont = fonts.find((font) => font.family === value);
+  const filtered =
+    selectedFont &&
+    !matchingFonts.some((font) => font.family === selectedFont.family)
+      ? [selectedFont, ...matchingFonts]
+      : matchingFonts;
+  const faces = fonts.find((font) => font.family === value)?.faces ?? [];
   return (
     <div className="font-picker">
       <label>
@@ -732,10 +747,30 @@ function FontPicker({
       >
         <option value="">システム既定</option>
         {filtered.map((font) => (
-          <option key={font}>{font}</option>
+          <option value={font.family} key={font.family}>
+            {font.family}
+          </option>
         ))}
       </select>
-      <div className="font-sample" style={{ fontFamily: value || "inherit" }}>
+      <label>
+        ウェイト／スタイル
+        <select
+          value={face || ""}
+          disabled={!value || faces.length === 0}
+          onChange={(event) => onFaceChange(event.target.value)}
+        >
+          <option value="">フォント既定</option>
+          {faces.map((item) => (
+            <option value={item.name} key={item.name}>
+              {item.style}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div
+        className="font-sample"
+        style={{ fontFamily: face || value || "inherit" }}
+      >
         {sample}
       </div>
     </div>
@@ -766,7 +801,7 @@ function RightInspector({
   options: ConvertOptions;
   onOptions: (options: ConvertOptions) => void;
   themes: Theme[];
-  fonts: string[];
+  fonts: FontFamily[];
   settings: AppSettings;
   result?: ExportResult;
   onExport: () => void;
@@ -898,6 +933,43 @@ function RightInspector({
                 checked={Boolean(options.pageNumber)}
                 onChange={(pageNumber) => update({ pageNumber })}
               />
+              {options.pageNumber && (
+                <div className="page-number-options">
+                  <label>
+                    形式
+                    <select
+                      value={options.pageNumberFormat || "current-total"}
+                      onChange={(event) =>
+                        update({
+                          pageNumberFormat: event.target.value as
+                            "current" | "current-total",
+                        })
+                      }
+                    >
+                      <option value="current">n</option>
+                      <option value="current-total">n/n</option>
+                    </select>
+                  </label>
+                  <FontPicker
+                    label="ページ番号のフォント"
+                    value={options.pageNumberFont?.family}
+                    face={options.pageNumberFont?.face}
+                    fonts={fonts}
+                    sample="1/12"
+                    onChange={(family) =>
+                      update({ pageNumberFont: { family } })
+                    }
+                    onFaceChange={(face) =>
+                      update({
+                        pageNumberFont: {
+                          ...options.pageNumberFont,
+                          face,
+                        },
+                      })
+                    }
+                  />
+                </div>
+              )}
             </SettingCard>
           </>
         )}
@@ -910,25 +982,50 @@ function RightInspector({
               <FontPicker
                 label="本文"
                 value={options.font?.body}
+                face={options.fontFace?.body}
                 fonts={fonts}
                 sample="あいうえお ABC 123"
-                onChange={(body) => update({ font: { ...options.font, body } })}
+                onChange={(body) =>
+                  update({
+                    font: { ...options.font, body },
+                    fontFace: { ...options.fontFace, body: undefined },
+                  })
+                }
+                onFaceChange={(body) =>
+                  update({ fontFace: { ...options.fontFace, body } })
+                }
               />
               <FontPicker
                 label="見出し"
                 value={options.font?.heading}
+                face={options.fontFace?.heading}
                 fonts={fonts}
                 sample="見出しサンプル Heading"
                 onChange={(heading) =>
-                  update({ font: { ...options.font, heading } })
+                  update({
+                    font: { ...options.font, heading },
+                    fontFace: { ...options.fontFace, heading: undefined },
+                  })
+                }
+                onFaceChange={(heading) =>
+                  update({ fontFace: { ...options.fontFace, heading } })
                 }
               />
               <FontPicker
                 label="コード"
                 value={options.font?.code}
+                face={options.fontFace?.code}
                 fonts={fonts}
                 sample="const value = 1;"
-                onChange={(code) => update({ font: { ...options.font, code } })}
+                onChange={(code) =>
+                  update({
+                    font: { ...options.font, code },
+                    fontFace: { ...options.fontFace, code: undefined },
+                  })
+                }
+                onFaceChange={(code) =>
+                  update({ fontFace: { ...options.fontFace, code } })
+                }
               />
             </SettingCard>
             <SettingCard
@@ -1084,6 +1181,251 @@ function formatBytes(bytes: number) {
     : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function SettingsDialog({
+  initialOptions,
+  themes,
+  fonts,
+  onCancel,
+  onSave,
+}: {
+  initialOptions: ConvertOptions;
+  themes: Theme[];
+  fonts: FontFamily[];
+  onCancel: () => void;
+  onSave: (options: ConvertOptions) => void;
+}) {
+  const [draft, setDraft] = useState<ConvertOptions>(initialOptions);
+  const update = (next: Partial<ConvertOptions>) =>
+    setDraft((current) => ({ ...current, ...next }));
+  return (
+    <div className="settings-overlay" role="presentation">
+      <section
+        className="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+      >
+        <header className="settings-header">
+          <div>
+            <h1 id="settings-title">規定の書式設定</h1>
+            <p>新しい文書で使用する組版の初期値を設定します。</p>
+          </div>
+          <button
+            className="settings-close"
+            onClick={onCancel}
+            aria-label="閉じる"
+          >
+            ×
+          </button>
+        </header>
+        <div className="settings-body">
+          <SettingCard title="フォント">
+            <div className="settings-font-grid">
+              <FontPicker
+                label="本文"
+                value={draft.font?.body}
+                face={draft.fontFace?.body}
+                fonts={fonts}
+                sample="あいうえお ABC 123"
+                onChange={(body) =>
+                  update({
+                    font: { ...draft.font, body },
+                    fontFace: { ...draft.fontFace, body: undefined },
+                  })
+                }
+                onFaceChange={(body) =>
+                  update({ fontFace: { ...draft.fontFace, body } })
+                }
+              />
+              <FontPicker
+                label="見出し"
+                value={draft.font?.heading}
+                face={draft.fontFace?.heading}
+                fonts={fonts}
+                sample="見出しサンプル Heading"
+                onChange={(heading) =>
+                  update({
+                    font: { ...draft.font, heading },
+                    fontFace: { ...draft.fontFace, heading: undefined },
+                  })
+                }
+                onFaceChange={(heading) =>
+                  update({ fontFace: { ...draft.fontFace, heading } })
+                }
+              />
+              <FontPicker
+                label="コード"
+                value={draft.font?.code}
+                face={draft.fontFace?.code}
+                fonts={fonts}
+                sample="const value = 1;"
+                onChange={(code) =>
+                  update({
+                    font: { ...draft.font, code },
+                    fontFace: { ...draft.fontFace, code: undefined },
+                  })
+                }
+                onFaceChange={(code) =>
+                  update({ fontFace: { ...draft.fontFace, code } })
+                }
+              />
+            </div>
+          </SettingCard>
+          <SettingCard title="フォントサイズ">
+            <div className="settings-size-grid">
+              {(["body", "h1", "h2", "h3", "h4", "h5", "h6"] as const).map(
+                (key) => (
+                  <label key={key}>
+                    {key === "body" ? "本文" : key.toUpperCase()}
+                    <span className="unit-input">
+                      <input
+                        type="number"
+                        min="6"
+                        max="72"
+                        step="0.5"
+                        value={draft.fontSize?.[key] ?? ""}
+                        placeholder={key === "body" ? "10.5" : "テーマ既定"}
+                        onChange={(event) =>
+                          update({
+                            fontSize: {
+                              ...draft.fontSize,
+                              [key]: event.target.value
+                                ? Number(event.target.value)
+                                : undefined,
+                            },
+                          })
+                        }
+                      />
+                      <span>pt</span>
+                    </span>
+                  </label>
+                ),
+              )}
+            </div>
+          </SettingCard>
+          <div className="settings-two-column">
+            <SettingCard title="用紙サイズ">
+              <Segmented
+                value={draft.paper || "A4"}
+                values={["A4", "A5", "Letter"]}
+                onChange={(paper) => update({ paper })}
+              />
+            </SettingCard>
+            <SettingCard title="向き">
+              <Segmented
+                value={draft.orientation || "portrait"}
+                values={["portrait", "landscape"]}
+                onChange={(orientation) =>
+                  update({
+                    orientation: orientation as "portrait" | "landscape",
+                  })
+                }
+              />
+            </SettingCard>
+            <SettingCard title="余白">
+              <Segmented
+                value={draft.margin || "18mm"}
+                values={["12mm", "18mm", "25mm"]}
+                onChange={(margin) => update({ margin })}
+              />
+            </SettingCard>
+            <SettingCard title="ページ要素">
+              <Toggle
+                label="目次"
+                checked={Boolean(draft.toc)}
+                onChange={(toc) => update({ toc })}
+              />
+              <Toggle
+                label="ページ番号"
+                checked={Boolean(draft.pageNumber)}
+                onChange={(pageNumber) => update({ pageNumber })}
+              />
+              {draft.pageNumber && (
+                <div className="page-number-options">
+                  <label>
+                    形式
+                    <select
+                      value={draft.pageNumberFormat || "current-total"}
+                      onChange={(event) =>
+                        update({
+                          pageNumberFormat: event.target.value as
+                            "current" | "current-total",
+                        })
+                      }
+                    >
+                      <option value="current">n</option>
+                      <option value="current-total">n/n</option>
+                    </select>
+                  </label>
+                  <FontPicker
+                    label="ページ番号のフォント"
+                    value={draft.pageNumberFont?.family}
+                    face={draft.pageNumberFont?.face}
+                    fonts={fonts}
+                    sample="1/12"
+                    onChange={(family) =>
+                      update({ pageNumberFont: { family } })
+                    }
+                    onFaceChange={(face) =>
+                      update({
+                        pageNumberFont: {
+                          ...draft.pageNumberFont,
+                          face,
+                        },
+                      })
+                    }
+                  />
+                </div>
+              )}
+            </SettingCard>
+            <SettingCard title="テーマ">
+              <select
+                value={draft.theme || "github"}
+                onChange={(event) => update({ theme: event.target.value })}
+              >
+                {themes.map((theme) => (
+                  <option value={theme.id} key={theme.id}>
+                    {theme.name}
+                  </option>
+                ))}
+              </select>
+            </SettingCard>
+            <SettingCard title="コードテーマ">
+              <select
+                value={draft.codeTheme || DEFAULT_CODE_THEME}
+                onChange={(event) => update({ codeTheme: event.target.value })}
+              >
+                {CODE_THEMES.map((theme) => (
+                  <option value={theme.id} key={theme.id}>
+                    {theme.name}
+                  </option>
+                ))}
+              </select>
+            </SettingCard>
+          </div>
+          <SettingCard title="表紙">
+            <Toggle
+              label="タイトル情報から表紙を生成"
+              checked={Boolean(draft.cover)}
+              onChange={(cover) => update({ cover })}
+            />
+          </SettingCard>
+        </div>
+        <footer className="settings-footer">
+          <Button onClick={() => setDraft(DEFAULT_OPTIONS)}>
+            初期値に戻す
+          </Button>
+          <span />
+          <Button onClick={onCancel}>キャンセル</Button>
+          <Button primary onClick={() => onSave(draft)}>
+            保存
+          </Button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 export function App() {
   const [document, setDocument] = useState<DocumentFile>();
   const [documents, setDocuments] = useState<DocumentFile[]>([]);
@@ -1095,12 +1437,13 @@ export function App() {
   const [inspection, setInspection] = useState(EMPTY_INSPECTION);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [themes, setThemes] = useState<Theme[]>([]);
-  const [fonts, setFonts] = useState<string[]>([]);
+  const [fonts, setFonts] = useState<FontFamily[]>([]);
   const [settings, setSettings] = useState<AppSettings>({});
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [side, setSide] = useState<SideSection>("Source");
   const [tab, setTab] = useState<InspectorTab>("Style");
   const [result, setResult] = useState<ExportResult>();
+  const [showingSettings, setShowingSettings] = useState(false);
   const renderId = useRef(0);
   const previewScroll = useRef(new Map<string, { x: number; y: number }>());
   const load = useCallback(async (next: DocumentFile) => {
@@ -1145,15 +1488,35 @@ export function App() {
   useEffect(() => {
     Promise.all([
       window.mdpdf.themes(),
-      window.mdpdf.fonts(),
       window.mdpdf.history(),
       window.mdpdf.settings(),
-    ]).then(([nextThemes, nextFonts, nextHistory, nextSettings]) => {
+    ]).then(([nextThemes, nextHistory, nextSettings]) => {
       setThemes(nextThemes);
-      setFonts(nextFonts);
       setHistory(nextHistory);
       setSettings(nextSettings);
+      if (nextSettings.defaultOptions)
+        setOptions({
+          ...DEFAULT_OPTIONS,
+          ...nextSettings.defaultOptions,
+          font: {
+            ...DEFAULT_OPTIONS.font,
+            ...nextSettings.defaultOptions.font,
+          },
+          fontFace: {
+            ...DEFAULT_OPTIONS.fontFace,
+            ...nextSettings.defaultOptions.fontFace,
+          },
+          fontSize: {
+            ...DEFAULT_OPTIONS.fontSize,
+            ...nextSettings.defaultOptions.fontSize,
+          },
+          pageNumberFont: {
+            ...DEFAULT_OPTIONS.pageNumberFont,
+            ...nextSettings.defaultOptions.pageNumberFont,
+          },
+        });
       if (
+        !nextSettings.defaultOptions?.theme &&
         nextSettings.defaultTheme &&
         nextThemes.some((theme) => theme.id === nextSettings.defaultTheme)
       )
@@ -1162,7 +1525,12 @@ export function App() {
           theme: nextSettings.defaultTheme,
         }));
     });
+    window.mdpdf.fonts().then(setFonts).catch(console.error);
   }, []);
+  useEffect(
+    () => window.mdpdf.onOpenSettings(() => setShowingSettings(true)),
+    [],
+  );
   useEffect(() => {
     const timer = window.setTimeout(render, 180);
     return () => window.clearTimeout(timer);
@@ -1205,6 +1573,31 @@ export function App() {
   const drop = async (file: File) => {
     if (/\.(md|markdown)$/i.test(file.name))
       await load(await window.mdpdf.read(window.mdpdf.filePath(file)));
+  };
+  const isTabDropArea = (event: React.DragEvent) => {
+    const tabs = event.currentTarget.querySelector(".document-tabs");
+    if (!tabs) return false;
+    const bounds = tabs.getBoundingClientRect();
+    const verticalTolerance = 28;
+    return (
+      event.clientX >= bounds.left &&
+      event.clientX <= bounds.right &&
+      event.clientY >= bounds.top - verticalTolerance &&
+      event.clientY <= bounds.bottom + verticalTolerance
+    );
+  };
+  const dragOverTabs = (event: React.DragEvent) => {
+    if (!isTabDropArea(event) || !event.dataTransfer.types.includes("Files"))
+      return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+  const dropOnTabs = (event: React.DragEvent) => {
+    if (!isTabDropArea(event)) return;
+    const file = event.dataTransfer.files[0];
+    if (!file || !/\.(md|markdown)$/i.test(file.name)) return;
+    event.preventDefault();
+    void drop(file);
   };
   const selectTab = async (path: string) => {
     const existing = documents.find((item) => item.path === path);
@@ -1296,7 +1689,26 @@ export function App() {
       onDefaultTheme={setDefaultTheme}
     />
   );
-  if (!document) return home();
+  const settingsDialog = showingSettings ? (
+    <SettingsDialog
+      initialOptions={settings.defaultOptions ?? options}
+      themes={themes}
+      fonts={fonts}
+      onCancel={() => setShowingSettings(false)}
+      onSave={async (defaultOptions) => {
+        setSettings(await window.mdpdf.setDefaultOptions(defaultOptions));
+        setOptions(defaultOptions);
+        setShowingSettings(false);
+      }}
+    />
+  ) : null;
+  if (!document)
+    return (
+      <>
+        {home()}
+        {settingsDialog}
+      </>
+    );
   const topBar = (
     <TopBar
       path={document.path}
@@ -1314,13 +1726,14 @@ export function App() {
   );
   if (showingHome)
     return (
-      <div className="app-shell">
+      <div className="app-shell" onDragOver={dragOverTabs} onDrop={dropOnTabs}>
         {topBar}
         {home(false)}
+        {settingsDialog}
       </div>
     );
   return (
-    <div className="app-shell">
+    <div className="app-shell" onDragOver={dragOverTabs} onDrop={dropOnTabs}>
       {topBar}
       <div className="workspace">
         <LeftSidebar
@@ -1372,6 +1785,7 @@ export function App() {
           onDefaultTheme={setDefaultTheme}
         />
       </div>
+      {settingsDialog}
     </div>
   );
 }

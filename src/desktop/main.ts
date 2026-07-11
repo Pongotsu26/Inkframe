@@ -19,6 +19,7 @@ import {
   clipboard,
   dialog,
   ipcMain,
+  Menu,
   nativeImage,
   shell,
 } from "electron";
@@ -50,6 +51,7 @@ interface SettingsHistory {
 }
 interface AppSettings {
   defaultTheme?: string;
+  defaultOptions?: ConvertOptions;
 }
 let mainWindow: BrowserWindow | undefined;
 let activeWatcher: FSWatcher | undefined;
@@ -276,6 +278,10 @@ async function renderHtmlPreview(
       paper: settings.paper ?? "A4",
       orientation: settings.orientation ?? "portrait",
       margin: settings.margin ?? "18mm",
+      pageNumber: Boolean(settings.pageNumber),
+      pageNumberFormat: settings.pageNumberFormat ?? "current-total",
+      pageNumberFont:
+        settings.pageNumberFont?.face ?? settings.pageNumberFont?.family,
     };
   } finally {
     await rm(inputPath, { force: true });
@@ -475,6 +481,16 @@ app.whenReady().then(async () => {
       return settings;
     },
   );
+  ipcMain.handle(
+    "settings:set-default-options",
+    async (_event, defaultOptions: ConvertOptions) => {
+      const settings = await appSettings();
+      settings.defaultOptions = defaultOptions;
+      settings.defaultTheme = defaultOptions.theme ?? settings.defaultTheme;
+      await writeAppSettings(settings);
+      return settings;
+    },
+  );
   ipcMain.handle("templates:list", templates);
   ipcMain.handle(
     "templates:save",
@@ -509,14 +525,66 @@ app.whenReady().then(async () => {
     height: 960,
     minWidth: 1100,
     minHeight: 700,
-    title: "Inkframe",
+    title: "",
+    backgroundColor: "#121314",
     icon: iconPath,
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hiddenInset" as const,
+          trafficLightPosition: { x: 14, y: 14 },
+        }
+      : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       preload: resolve(import.meta.dirname, "../../desktop/preload.cjs"),
     },
   });
+  mainWindow.on("page-title-updated", (event) => {
+    event.preventDefault();
+    mainWindow?.setTitle("");
+  });
+  const menu = Menu.buildFromTemplate([
+    ...(process.platform === "darwin"
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              {
+                label: "設定…",
+                accelerator: "CommandOrControl+,",
+                click: () => mainWindow?.webContents.send("settings:open"),
+              },
+              { type: "separator" as const },
+              { role: "services" as const },
+              { type: "separator" as const },
+              { role: "hide" as const },
+              { role: "hideOthers" as const },
+              { role: "unhide" as const },
+              { type: "separator" as const },
+              { role: "quit" as const },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: "ファイル",
+      submenu: [
+        {
+          label: "設定…",
+          accelerator:
+            process.platform === "darwin" ? undefined : "CommandOrControl+,",
+          visible: process.platform !== "darwin",
+          click: () => mainWindow?.webContents.send("settings:open"),
+        },
+        { role: "close" },
+      ],
+    },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+  ]);
+  Menu.setApplicationMenu(menu);
   await mainWindow.loadFile(
     resolve(import.meta.dirname, "../../desktop/renderer-dist/index.html"),
   );

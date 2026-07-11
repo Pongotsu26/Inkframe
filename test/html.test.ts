@@ -9,7 +9,7 @@ import {
   sanitizeDangerousHtml,
   transformDefinitionLists,
 } from "../src/html.js";
-import { parseMacFontFamilies } from "../src/fonts.js";
+import { parseMacFontFamilies, parseMacFonts } from "../src/fonts.js";
 
 describe("addHeadingIdsAndToc", () => {
   it("見出しに安定した ID を付け、目次プレースホルダーを展開する", () => {
@@ -38,6 +38,27 @@ describe("local fonts", () => {
     expect(parseMacFontFamilies(output)).toEqual([
       "Test Sans",
       "日本語フォント",
+    ]);
+  });
+
+  it("macOS のフォント情報からファミリーごとのウェイトを取得する", () => {
+    const output = `
+        A-OTF-UDShinGoPro-L:
+          Full Name: A-OTF UD新ゴ Pro L
+          Family: A-OTF UD新ゴ Pro
+          Style: L
+        A-OTF-UDShinGoPro-DB:
+          Full Name: A-OTF UD新ゴ Pro DB
+          Family: A-OTF UD新ゴ Pro
+          Style: DB`;
+    expect(parseMacFonts(output)).toEqual([
+      {
+        family: "A-OTF UD新ゴ Pro",
+        faces: [
+          { name: "A-OTF UD新ゴ Pro DB", style: "DB" },
+          { name: "A-OTF UD新ゴ Pro L", style: "L" },
+        ],
+      },
     ]);
   });
 });
@@ -189,6 +210,18 @@ describe("extended Markdown", () => {
     expect(document.html).toContain("--body-font-size: 10.5pt");
     expect(document.html).toContain("h1 { font-size: 18pt !important; }");
     expect(document.html).toContain("h6 { font-size: 18pt !important; }");
+  });
+
+  it("選択したフォントフェイスをファミリーより優先する", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mdpdf-html-"));
+    const input = join(directory, "font-face.md");
+    await writeFile(input, "# 見出し\n\n本文");
+    const document = await markdownToHtml(input, {
+      theme: "github",
+      font: { body: "A-OTF UD新ゴ Pro" },
+      fontFace: { body: "A-OTF UD新ゴ Pro DB" },
+    });
+    expect(document.html).toContain('--body-font: "A-OTF UD新ゴ Pro DB",');
   });
 
   it("h1〜h6に個別のフォントサイズを設定する", async () => {

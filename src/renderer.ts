@@ -42,13 +42,21 @@ function headerTemplate(value?: string): string {
   return `<div style="width:100%;font-size:8px;color:#666;padding:0 12mm;text-align:center">${value ?? ""}</div>`;
 }
 
-function footerTemplate(value?: string, pageNumber?: boolean): string {
-  const text =
-    value ??
-    (pageNumber
-      ? '<span class="pageNumber"></span> / <span class="totalPages"></span>'
-      : "");
-  return `<div style="width:100%;font-size:8px;color:#666;padding:0 12mm;text-align:center">${text}</div>`;
+export function footerTemplate(
+  value?: string,
+  pageNumber?: boolean,
+  format: "current" | "current-total" = "current-total",
+  font?: string,
+): string {
+  const pageText =
+    format === "current"
+      ? '<span class="pageNumber"></span>'
+      : '<span class="pageNumber"></span>/<span class="totalPages"></span>';
+  const text = value ?? (pageNumber ? pageText : "");
+  const fontFamily = font
+    ? `font-family:&quot;${font.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}&quot;;`
+    : "";
+  return `<div style="width:100%;font-size:8px;${fontFamily}color:#666;padding:0 12mm;text-align:center">${text}</div>`;
 }
 
 async function readFrontmatter(inputPath: string): Promise<MdpdfConfig> {
@@ -193,7 +201,12 @@ export async function convertMarkdown(
         settings.pageNumber || settings.header || settings.footer,
       ),
       headerTemplate: headerTemplate(settings.header),
-      footerTemplate: footerTemplate(settings.footer, settings.pageNumber),
+      footerTemplate: footerTemplate(
+        settings.footer,
+        settings.pageNumber,
+        settings.pageNumberFormat,
+        settings.pageNumberFont?.face ?? settings.pageNumberFont?.family,
+      ),
       tagged: true,
       outline: true,
     });

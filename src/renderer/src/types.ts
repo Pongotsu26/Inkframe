@@ -5,9 +5,12 @@ export interface ConvertOptions {
   margin?: string;
   toc?: boolean;
   pageNumber?: boolean;
+  pageNumberFormat?: "current" | "current-total";
+  pageNumberFont?: { family?: string; face?: string };
   cover?: boolean;
   orientation?: "portrait" | "landscape";
   font?: { body?: string; heading?: string; code?: string };
+  fontFace?: { body?: string; heading?: string; code?: string };
   fontSize?: {
     body?: number;
     heading?: number;
@@ -35,6 +38,9 @@ export interface PreviewHtml {
   paper: string;
   orientation: "portrait" | "landscape";
   margin: string;
+  pageNumber: boolean;
+  pageNumberFormat: "current" | "current-total";
+  pageNumberFont?: string;
 }
 export interface Inspection {
   outline: Array<{ level: number; text: string; line: number }>;
@@ -57,6 +63,11 @@ export interface Theme {
 }
 export interface AppSettings {
   defaultTheme?: string;
+  defaultOptions?: ConvertOptions;
+}
+export interface FontFamily {
+  family: string;
+  faces: Array<{ name: string; style: string }>;
 }
 export interface HistoryItem {
   path: string;
@@ -79,7 +90,7 @@ export interface MdpdfApi {
     path: string | undefined,
     options: ConvertOptions,
   ): Promise<ExportResult | undefined>;
-  fonts(): Promise<string[]>;
+  fonts(): Promise<FontFamily[]>;
   themes(): Promise<Theme[]>;
   history(): Promise<HistoryItem[]>;
   createTheme(name: string, sourceTheme?: string): Promise<Theme>;
@@ -89,6 +100,7 @@ export interface MdpdfApi {
   exportTheme(cssPath: string): Promise<boolean>;
   settings(): Promise<AppSettings>;
   setDefaultTheme(theme?: string): Promise<AppSettings>;
+  setDefaultOptions(options: ConvertOptions): Promise<AppSettings>;
   openEditor(
     path: string,
     line?: number,
@@ -101,6 +113,7 @@ export interface MdpdfApi {
   fileUrl(path: string): string;
   onDocumentChanged(callback: (path: string) => void): () => void;
   onWatchError(callback: (path: string) => void): () => void;
+  onOpenSettings(callback: () => void): () => void;
 }
 declare global {
   interface Window {
