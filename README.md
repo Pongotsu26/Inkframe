@@ -65,9 +65,9 @@ pnpm desktop
 
 アプリアイコンは `assets/icon.svg` をフラット版の正本とし、ImageMagick導入後に `pnpm icon:build` で1024px PNGとRetina対応ICNSを再生成できます。macOS 26以降のLiquid Glass版は `assets/Inkframe.icon` に背景・フレーム・紙・組版記号を分離したIcon Composerレイヤーとして収録しています。`pnpm package:mac` は `/Applications` のXcode 26以降（`Xcode.app` または `Xcode-beta.app`）を自動検出し、electron-builderで `.icon` を `Assets.car` へコンパイルします。
 
-Desktop版は、実際のPDFと同一レイアウトのページプレビュー、テーマ・用紙・余白・フォントの選択、PDFワンクリック生成を提供します。Markdownをドロップして開けるほか、アウトライン・Issues・Assets・履歴を確認できます。設定や履歴はOSのアプリデータ領域にローカル保存され、Markdownを外部送信しません。
+Desktop版は、PDF出力と同じHTML/CSSをページ分割したプレビュー、テーマ・用紙・余白・フォントの選択、PDFワンクリック生成を提供します。Markdownをドロップして開けるほか、アウトライン・Issues・Assets・履歴を確認できます。設定や履歴はOSのアプリデータ領域にローカル保存され、Markdownを外部送信しません。
 
-PDFプレビューはアプリに同梱したPDF.jsで描画するため、Popplerなどの外部ツールは不要です。
+ページプレビューはアプリに同梱したPaged.jsでHTMLを直接組版するため、拡大しても文字や図形が鮮明です。Popplerなどの外部ツールは不要です。
 
 主なオプション:
 

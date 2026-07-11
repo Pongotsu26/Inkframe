@@ -216,6 +216,11 @@ export async function markdownToHtml(inputPath: string, options: MdpdfConfig): P
   const bodyFont = options.font?.body ? `"${escapeAttribute(options.font.body)}", ${FALLBACK_FONTS}` : FALLBACK_FONTS;
   const headingFont = options.font?.heading ? `"${escapeAttribute(options.font.heading)}", ${bodyFont}` : bodyFont;
   const codeFont = options.font?.code ? `"${escapeAttribute(options.font.code)}", ui-monospace, monospace` : "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  const bodyFontSize = options.fontSize?.body ?? 10.5;
+  const headingFontSizeCss = ([1, 2, 3, 4, 5, 6] as const).map(level => {
+    const size = options.fontSize?.[`h${level}`] ?? options.fontSize?.heading;
+    return size === undefined ? "" : `\nh${level} { font-size: ${size}pt !important; }`;
+  }).join("");
   const title = options.title ?? frontmatter.title ?? basename(inputPath);
   const metadata = { ...frontmatter, ...options, title };
   const language = metadata.language ?? "ja";
@@ -223,6 +228,6 @@ export async function markdownToHtml(inputPath: string, options: MdpdfConfig): P
   return {
     frontmatter,
     mermaidScriptPath: require.resolve("mermaid/dist/mermaid.min.js"),
-    html: `<!doctype html><html lang="${escapeAttribute(language)}"><head><meta charset="utf-8"><base href="${pathToFileURL(`${dirname(inputPath)}/`).href}"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="author" content="${escapeAttribute(metadata.author ?? "")}"><meta name="subject" content="${escapeAttribute(metadata.subject ?? "")}"><meta name="keywords" content="${escapeAttribute(keywords ?? "")}"><title>${escapeAttribute(title)}</title><style>${katexCss}\n${themeCss}\n${codeBlockCss(codeTheme)}\n${customCss}\n:root { --body-font: ${bodyFont}; --heading-font: ${headingFont}; --code-font: ${codeFont}; }</style></head><body>${cover(metadata)}<main class="markdown-body">${content}</main></body></html>`
+    html: `<!doctype html><html lang="${escapeAttribute(language)}"><head><meta charset="utf-8"><base href="${pathToFileURL(`${dirname(inputPath)}/`).href}"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="author" content="${escapeAttribute(metadata.author ?? "")}"><meta name="subject" content="${escapeAttribute(metadata.subject ?? "")}"><meta name="keywords" content="${escapeAttribute(keywords ?? "")}"><title>${escapeAttribute(title)}</title><style>${katexCss}\n${themeCss}\n${codeBlockCss(codeTheme)}\n${customCss}\n:root { --body-font: ${bodyFont}; --heading-font: ${headingFont}; --code-font: ${codeFont}; --body-font-size: ${bodyFontSize}pt; }\nbody { font-size: var(--body-font-size) !important; }${headingFontSizeCss}</style></head><body>${cover(metadata)}<main class="markdown-body">${content}</main></body></html>`
   };
 }

@@ -35,6 +35,7 @@ export function mergeConfig(...configs: Array<MdpdfConfig | undefined>): MdpdfCo
     if (!config) return merged;
     const defined = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined)) as MdpdfConfig;
     const font = Object.fromEntries(Object.entries(config.font ?? {}).filter(([, value]) => value !== undefined));
-    return { ...merged, ...defined, font: { ...merged.font, ...font } };
+    const fontSize = Object.fromEntries(Object.entries(config.fontSize ?? {}).filter(([, value]) => value !== undefined));
+    return { ...merged, ...defined, font: { ...merged.font, ...font }, fontSize: { ...merged.fontSize, ...fontSize } };
   }, {});
 }

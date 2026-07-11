@@ -1,21 +1,21 @@
 export interface ConvertOptions {
   theme?: string; codeTheme?: string; paper?: string; margin?: string; toc?: boolean; pageNumber?: boolean; cover?: boolean;
   orientation?: "portrait" | "landscape"; font?: { body?: string; heading?: string; code?: string };
+  fontSize?: { body?: number; heading?: number; h1?: number; h2?: number; h3?: number; h4?: number; h5?: number; h6?: number };
 }
 export interface DocumentFile { path: string; content: string }
 export interface ExportResult { outputPath: string; fileName: string; fileSize: number; pageCount?: number }
-export interface PreviewResult { pages: string[]; pageCount: number }
-export interface PreviewPdf { data: Uint8Array }
+export interface PreviewHtml { html: string; mermaidScriptUrl: string; paper: string; orientation: "portrait" | "landscape"; margin: string }
 export interface Inspection {
   outline: Array<{ level: number; text: string; line: number }>;
   issues: Array<{ severity: "error" | "warning" | "info"; message: string; line: number; column: number }>;
   assets: Array<{ path: string; line: number; kind: string }>;
 }
-export interface Theme { id: string; name: string }
+export interface Theme { id: string; name: string; paper?: string; orientation?: "portrait" | "landscape" }
 export interface HistoryItem { path: string; outputPath?: string; openedAt: string }
 export interface MdpdfApi {
   open(): Promise<DocumentFile | undefined>; openFolder(): Promise<DocumentFile | undefined>; read(path: string): Promise<DocumentFile>;
-  watch(path?: string): Promise<boolean>; inspect(content: string): Promise<Inspection>; renderPreview(content: string, path: string | undefined, options: ConvertOptions): Promise<PreviewPdf>;
+  watch(path?: string): Promise<boolean>; inspect(content: string): Promise<Inspection>; renderPreview(content: string, path: string | undefined, options: ConvertOptions): Promise<PreviewHtml>;
   generatePdf(content: string, path: string | undefined, options: ConvertOptions): Promise<ExportResult | undefined>;
   fonts(): Promise<string[]>; themes(): Promise<Theme[]>; history(): Promise<HistoryItem[]>;
   openEditor(path: string, line?: number, column?: number): Promise<{ ok: boolean; message?: string }>;

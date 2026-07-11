@@ -18,10 +18,23 @@ export interface FontOptions {
   code?: string;
 }
 
+export interface FontSizeOptions {
+  body?: number;
+  /** Legacy value used as a fallback for every heading level. */
+  heading?: number;
+  h1?: number;
+  h2?: number;
+  h3?: number;
+  h4?: number;
+  h5?: number;
+  h6?: number;
+}
+
 export interface MdpdfConfig {
   theme?: string;
   codeTheme?: string;
   paper?: Paper;
+  orientation?: "portrait" | "landscape";
   margin?: string;
   toc?: boolean;
   pageNumber?: boolean;
@@ -30,6 +43,8 @@ export interface MdpdfConfig {
   /** Render inline and display TeX with KaTeX. Defaults to true. */
   math?: boolean;
   font?: FontOptions;
+  /** Font sizes in points. Body defaults to 10.5pt; headings use the theme unless specified. */
+  fontSize?: FontSizeOptions;
   css?: string;
   header?: string;
   footer?: string;

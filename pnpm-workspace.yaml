@@ -1,3 +1,5 @@
 allowBuilds:
+  core-js: false
   electron-winstaller: false
+  es5-ext: false
   esbuild: true

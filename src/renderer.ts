@@ -43,7 +43,7 @@ async function readFrontmatter(inputPath: string): Promise<MdpdfConfig> {
 
 export async function resolvedConfig(inputPath: string, options: ConvertOptions = {}): Promise<MdpdfConfig> {
   return mergeConfig(
-    { theme: "github", codeTheme: DEFAULT_CODE_THEME, paper: "A4", margin: "18mm", toc: false, pageNumber: false, mermaid: true, math: true },
+    { theme: "github", codeTheme: DEFAULT_CODE_THEME, paper: "A4", margin: "18mm", toc: false, pageNumber: false, mermaid: true, math: true, fontSize: { body: 10.5 } },
     await findConfig(inputPath),
     await readFrontmatter(inputPath),
     options
@@ -103,7 +103,7 @@ export async function convertMarkdown(input: string, options: ConvertOptions = {
         await mermaid.run();
       });
     }
-    await page.pdf({ path: outputPath, format: settings.paper ?? "A4", printBackground: true, preferCSSPageSize: false,
+    await page.pdf({ path: outputPath, format: settings.paper ?? "A4", landscape: settings.orientation === "landscape", printBackground: true, preferCSSPageSize: false,
       margin: margins(settings.margin ?? "18mm"), displayHeaderFooter: Boolean(settings.pageNumber || settings.header || settings.footer),
       headerTemplate: headerTemplate(settings.header), footerTemplate: footerTemplate(settings.footer, settings.pageNumber), tagged: true, outline: true });
   } finally {

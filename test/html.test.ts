@@ -127,6 +127,33 @@ describe("extended Markdown", () => {
     expect(document.html).not.toContain("background: #f9fafb !important;");
   });
 
+  it("本文と見出しのフォントサイズをpt単位で反映する", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mdpdf-html-"));
+    const input = join(directory, "font-size.md");
+    await writeFile(input, "# 見出し\n\n本文");
+    const document = await markdownToHtml(input, { theme: "github", fontSize: { body: 10.5, heading: 18 } });
+    expect(document.html).toContain("--body-font-size: 10.5pt");
+    expect(document.html).toContain("h1 { font-size: 18pt !important; }");
+    expect(document.html).toContain("h6 { font-size: 18pt !important; }");
+  });
+
+  it("h1〜h6に個別のフォントサイズを設定する", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mdpdf-html-"));
+    const input = join(directory, "heading-fonts.md");
+    await writeFile(input, "# H1\n\n## H2");
+    const document = await markdownToHtml(input, { theme: "github", fontSize: { h1: 20, h2: 16 } });
+    expect(document.html).toContain("h1 { font-size: 20pt !important; }");
+    expect(document.html).toContain("h2 { font-size: 16pt !important; }");
+  });
+
+  it("見出しサイズ未指定時はテーマ既定の階層を維持する", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mdpdf-html-"));
+    const input = join(directory, "default-heading-size.md");
+    await writeFile(input, "# 見出し\n\n本文");
+    const document = await markdownToHtml(input, { theme: "github", fontSize: { body: 10.5 } });
+    expect(document.html).not.toContain("h1, h2, h3, h4, h5, h6 { font-size:");
+  });
+
   it("実行可能な HTML を除去し、通常の HTML は残す", () => {
     const result = sanitizeDangerousHtml('<p onclick="alert(1)">本文</p><script>alert(1)</script><img src="javascript:alert(1)">');
     expect(result).toBe("<p>本文</p><img>");

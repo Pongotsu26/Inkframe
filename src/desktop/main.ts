@@ -1,13 +1,15 @@
 import { watch, type FSWatcher } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
 import matter from "gray-matter";
 import { listFonts } from "../fonts.js";
-import { convertMarkdown, type ConvertOptions } from "../renderer.js";
+import { markdownToHtml } from "../html.js";
+import { convertMarkdown, resolvedConfig, type ConvertOptions } from "../renderer.js";
 import { listThemes } from "../themes.js";
 
 interface HistoryItem { path: string; outputPath?: string; openedAt: string; }
@@ -61,8 +63,8 @@ function inspectMarkdown(content: string) {
 }
 async function openEditor(path: string, line = 1, column = 1): Promise<{ ok: boolean; method?: string; message?: string }> {
   const target = `${path}:${line}:${column}`;
-  try { await execFileAsync(process.env.INKFRAME_EDITOR || process.env.MDPDF_EDITOR || "code", ["-g", target]); return { ok: true, method: "code" }; } catch {}
-  try { await shell.openExternal(`vscode://file/${encodeURI(path)}:${line}:${column}`); return { ok: true, method: "vscode-uri" }; } catch {}
+  try { await execFileAsync(process.env.INKFRAME_EDITOR || process.env.MDPDF_EDITOR || "code", ["-g", target]); return { ok: true, method: "code" }; } catch { }
+  try { await shell.openExternal(`vscode://file/${encodeURI(path)}:${line}:${column}`); return { ok: true, method: "vscode-uri" }; } catch { }
   const error = await shell.openPath(path);
   return error ? { ok: false, message: `エディタで開けませんでした: ${error}` } : { ok: true, method: "system" };
 }
@@ -75,18 +77,23 @@ function watchDocument(path?: string): void {
   } catch { mainWindow?.webContents.send("document:watch-error", path); }
 }
 function previewPath(path?: string): string { return join(path ? dirname(path) : app.getPath("temp"), `.inkframe-preview-${process.pid}-${randomUUID()}.md`); }
-async function renderPdfPreview(content: string, activePath: string | undefined, options: ConvertOptions) {
+async function renderHtmlPreview(content: string, activePath: string | undefined, options: ConvertOptions) {
   const inputPath = previewPath(activePath);
-  const previewRoot = await mkdtemp(join(app.getPath("temp"), `inkframe-preview-${process.pid}-`));
-  const pdfPath = join(previewRoot, "preview.pdf");
   try {
     await writeFile(inputPath, content, "utf8");
     const frontmatter = matter(content).data as { title?: string };
     const previewOptions = !options.title && !frontmatter.title && activePath ? { ...options, title: basename(activePath) } : options;
-    await convertMarkdown(inputPath, { ...previewOptions, output: pdfPath, compress: false, imageOptimize: false });
-    return { data: new Uint8Array(await readFile(pdfPath)) };
+    const settings = await resolvedConfig(inputPath, previewOptions);
+    const document = await markdownToHtml(inputPath, settings);
+    return {
+      html: document.html,
+      mermaidScriptUrl: pathToFileURL(document.mermaidScriptPath).href,
+      paper: settings.paper ?? "A4",
+      orientation: settings.orientation ?? "portrait",
+      margin: settings.margin ?? "18mm"
+    };
   } finally {
-    await Promise.all([rm(previewRoot, { recursive: true, force: true }), rm(inputPath, { force: true })]);
+    await rm(inputPath, { force: true });
   }
 }
 
@@ -107,7 +114,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("document:read", async (_event, path: string) => { const document = { path, content: await readFile(path, "utf8") }; watchDocument(path); return document; });
   ipcMain.handle("document:watch", (_event, path?: string) => { watchDocument(path); return Boolean(path); });
   ipcMain.handle("document:inspect", (_event, content: string) => inspectMarkdown(content));
-  ipcMain.handle("preview:render", async (_event, content: string, activePath: string | undefined, options: ConvertOptions) => renderPdfPreview(content, activePath, options));
+  ipcMain.handle("preview:render", async (_event, content: string, activePath: string | undefined, options: ConvertOptions) => renderHtmlPreview(content, activePath, options));
   ipcMain.handle("pdf:generate", async (_event, content: string, activePath: string | undefined, options: ConvertOptions) => {
     const inputPath = activePath ?? join(app.getPath("documents"), "inkframe-document.md"); await mkdir(dirname(inputPath), { recursive: true }); await writeFile(inputPath, content, "utf8");
     const result = await dialog.showSaveDialog(mainWindow!, { title: "PDF を保存", defaultPath: options.output ?? inputPath.replace(/\.(?:md|markdown)$/i, ".pdf"), filters: [{ name: "PDF", extensions: ["pdf"] }] });
@@ -115,7 +122,7 @@ app.whenReady().then(async () => {
     const outputPath = await convertMarkdown(inputPath, { ...options, output: result.filePath }); await record({ path: inputPath, outputPath }); await recordSettings(options);
     const info = await stat(outputPath);
     let pageCount: number | undefined;
-    try { const { stdout } = await execFileAsync("pdfinfo", [outputPath]); pageCount = Number(/^Pages:\s+(\d+)/m.exec(stdout)?.[1]); } catch {}
+    try { const { stdout } = await execFileAsync("pdfinfo", [outputPath]); pageCount = Number(/^Pages:\s+(\d+)/m.exec(stdout)?.[1]); } catch { }
     return { outputPath, fileName: basename(outputPath), fileSize: info.size, pageCount };
   });
   ipcMain.handle("editor:open", (_event, path: string, line?: number, column?: number) => openEditor(path, line, column));
