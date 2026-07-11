@@ -1,0 +1,41 @@
+/* Generated from vscode-dark.generated.json. Do not edit directly. */
+:root {
+  color-scheme: dark;
+  --bg-app: #121314;
+  --bg-titlebar: #191a1b;
+  --bg-sidebar: #191a1b;
+  --bg-panel: #191a1b;
+  --bg-panel-elevated: #202122;
+  --bg-input: #191a1b;
+  --bg-hover: #ffffff14;
+  --bg-selected: #ffffff22;
+  --bg-active: #3994bc;
+  --bg-preview: #121314;
+  --bg-paper: #ffffff;
+  --paper-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --border-subtle: #2a2b2c;
+  --border-strong: #3994bcb3;
+  --text-primary: #bfbfbf;
+  --text-secondary: #8c8c8c;
+  --text-muted: #555555;
+  --text-disabled: #555555;
+  --text-on-accent: #ffffff;
+  --accent: #297aa0;
+  --accent-hover: #2b7da3;
+  --accent-soft: rgba(57, 148, 188, 0.18);
+  --focus-ring: #3994bcb3;
+  --danger: #f48771;
+  --warning: #cca700;
+  --success: #89d185;
+  --info: #3794ff;
+  --button-bg: #297aa0;
+  --button-bg-hover: #2b7da3;
+  --button-secondary-bg: #00000000;
+  --button-secondary-hover: #ffffff10;
+  --input-bg: #191a1b;
+  --input-border: #333536;
+  --input-border-focus: #3994bcb3;
+  --tab-active-border: #3994bcb3;
+  --scrollbar-thumb: #a8a9aa85;
+  --scrollbar-thumb-hover: #a8a9aa90;
+}

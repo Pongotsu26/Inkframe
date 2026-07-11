@@ -1,0 +1,10 @@
+@page { size: A4; }
+body { color: #17212b; font-family: var(--body-font); font-size: 10.5pt; line-height: 1.7; }
+h1, h2, h3, h4, h5, h6 { font-family: var(--heading-font); line-height: 1.3; page-break-after: avoid; }
+h1 { border-bottom: 3px solid #0b7285; padding-bottom: .3em; } h2 { border-bottom: 1px solid #9bd3dc; }
+pre, code { font-family: var(--code-font); } pre { background: #f1f5f9; padding: 1em; overflow: auto; }
+table { border-collapse: collapse; width: 100%; } th, td { border: 1px solid #94a3b8; padding: .4em .6em; } th { background: #e0f2fe; }
+img { display: block; height: auto; margin: 1em auto; max-width: 100%; } figure { break-inside: avoid; margin: 1em 0; } figcaption { text-align: center; }
+dl { margin: 1em 0; } dt { font-weight: 700; } dd { margin: .3em 0 1em 1.5em; }
+.pagebreak, .toc, .cover { break-after: page; page-break-after: always; }.toc li { list-style: none; }.toc-level-2 { margin-left: 1em; }.toc-level-3 { margin-left: 2em; }
+.cover { align-items: center; display: flex; flex-direction: column; justify-content: center; min-height: 230mm; text-align: center; }.cover h1 { font-size: 2.4em; }.cover dl { text-align: left; }.cover dt { float: left; }.cover dd { margin-left: 6em; }

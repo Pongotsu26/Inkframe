@@ -1,0 +1,58 @@
+{
+  "name": "mdpdf-local",
+  "version": "0.1.0",
+  "description": "Local-first Markdown to PDF CLI with Japanese typography support",
+  "packageManager": "pnpm@11.9.0",
+  "type": "module",
+  "main": "./dist/desktop/main.js",
+  "bin": {
+    "mdpdf": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "themes",
+    "desktop"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && pnpm renderer:build",
+    "renderer:build": "vite build",
+    "renderer:dev": "vite",
+    "theme:extract": "node scripts/vscode-theme-to-css.mjs design/vscode-dark.generated.json src/renderer/src/styles/vscode-theme.css",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "desktop": "pnpm build && electron .",
+    "test": "vitest run --config vitest.config.ts",
+    "check": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "gray-matter": "^4.0.3",
+    "katex": "^0.16.22",
+    "mermaid": "^11.12.1",
+    "playwright": "^1.55.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "rehype-katex": "^7.0.1",
+    "rehype-stringify": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "shiki": "^3.12.2",
+    "unified": "^11.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "^43.1.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite": "^8.1.4",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "theme": "university",
+  "paper": "A4",
+  "margin": "20mm 18mm",
+  "toc": true,
+  "pageNumber": true,
+  "font": {
+    "body": "BIZ UDPGothic",
+    "heading": "BIZ UDPMincho",
+    "code": "SF Mono"
+  }
+}

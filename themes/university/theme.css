@@ -1,0 +1,185 @@
+@page {
+  size: A4;
+}
+
+body {
+  color: #111;
+  background: #fff;
+  font-family: var(--body-font);
+  font-size: 11pt;
+  line-height: 1.9;
+}
+
+.markdown-body {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--heading-font);
+  font-weight: 600;
+  line-height: 1.45;
+  page-break-after: avoid;
+}
+
+h1 {
+  font-size: 19pt;
+  text-align: center;
+  margin: 1em 0 2.2em;
+}
+
+h2 {
+  font-size: 15pt;
+  border-bottom: 1px solid #333;
+  padding-bottom: .2em;
+  margin-top: 2em;
+}
+
+h3 {
+  font-size: 12pt;
+  margin-top: 1.6em;
+}
+
+p {
+  margin: 0 0 1em;
+  text-align: justify;
+}
+
+blockquote {
+  border-left: 3px solid #555;
+  margin: 1em 0;
+  padding-left: 1em;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.2em 0;
+  font-size: 10pt;
+}
+
+th,
+td {
+  border: 1px solid #333;
+  padding: .35em .55em;
+}
+
+th {
+  background: #eee;
+}
+
+pre {
+  padding: .9em;
+  background: #f4f4f4;
+  border: 1px solid #bbb;
+  overflow: auto;
+  font-family: var(--code-font);
+  font-size: 9pt;
+  line-height: 1.45;
+}
+
+code {
+  font-family: var(--code-font);
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.2em auto;
+}
+
+figure {
+  break-inside: avoid;
+  margin: 1.3em 0;
+}
+
+figcaption {
+  font-size: 9.5pt;
+  margin-top: .4em;
+  text-align: center;
+}
+
+dl { margin: 1em 0; }
+dt { font-weight: 600; }
+dd { margin: .3em 0 1em 1.5em; }
+
+.cover {
+  align-items: center;
+  break-after: page;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 230mm;
+  page-break-after: always;
+  text-align: center;
+}
+
+.cover h1 {
+  border: 0;
+  font-size: 24pt;
+  margin-bottom: 4em;
+}
+
+.cover dl { min-width: 18em; text-align: left; }
+.cover dt { float: left; }
+.cover dd { margin-left: 6em; }
+
+figure {
+  margin: 1.2em 0;
+}
+
+figcaption {
+  font-size: 9pt;
+  margin-top: -.6em;
+  text-align: center;
+}
+
+dl {
+  margin: 1em 0;
+}
+
+dt {
+  font-weight: 600;
+}
+
+dd {
+  margin: .2em 0 .75em 1.5em;
+}
+
+.pagebreak {
+  break-after: page;
+  page-break-after: always;
+}
+
+.toc {
+  break-after: page;
+  page-break-after: always;
+}
+
+.toc li {
+  list-style: none;
+  margin: .2em 0;
+}
+
+.toc-level-2 {
+  margin-left: 1em;
+}
+
+.toc-level-3 {
+  margin-left: 2em;
+}
+
+.toc-level-4,
+.toc-level-5,
+.toc-level-6 {
+  margin-left: 3em;
+}
+
+.mermaid {
+  text-align: center;
+}
