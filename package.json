@@ -1,12 +1,13 @@
 {
-  "name": "mdpdf-local",
-  "version": "0.1.0",
-  "description": "Local-first Markdown to PDF CLI with Japanese typography support",
+  "name": "inkframe",
+  "productName": "Inkframe",
+  "version": "0.2.0",
+  "description": "A local-first Markdown typesetting studio for polished PDFs",
   "packageManager": "pnpm@11.9.0",
   "type": "module",
   "main": "./dist/desktop/main.js",
   "bin": {
-    "mdpdf": "./dist/cli.js"
+    "inkframe": "./dist/cli.js"
   },
   "files": [
     "dist",

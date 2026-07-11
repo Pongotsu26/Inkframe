@@ -1,11 +1,12 @@
 import { watch, type FSWatcher } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
+import matter from "gray-matter";
 import { listFonts } from "../fonts.js";
-import { markdownToHtml } from "../html.js";
 import { convertMarkdown, type ConvertOptions } from "../renderer.js";
 import { listThemes } from "../themes.js";
 
@@ -60,7 +61,7 @@ function inspectMarkdown(content: string) {
 }
 async function openEditor(path: string, line = 1, column = 1): Promise<{ ok: boolean; method?: string; message?: string }> {
   const target = `${path}:${line}:${column}`;
-  try { await execFileAsync(process.env.MDPDF_EDITOR || "code", ["-g", target]); return { ok: true, method: "code" }; } catch {}
+  try { await execFileAsync(process.env.INKFRAME_EDITOR || process.env.MDPDF_EDITOR || "code", ["-g", target]); return { ok: true, method: "code" }; } catch {}
   try { await shell.openExternal(`vscode://file/${encodeURI(path)}:${line}:${column}`); return { ok: true, method: "vscode-uri" }; } catch {}
   const error = await shell.openPath(path);
   return error ? { ok: false, message: `エディタで開けませんでした: ${error}` } : { ok: true, method: "system" };
@@ -73,7 +74,30 @@ function watchDocument(path?: string): void {
     activeWatcher.on("error", () => mainWindow?.webContents.send("document:watch-error", path));
   } catch { mainWindow?.webContents.send("document:watch-error", path); }
 }
-function previewPath(path?: string): string { return join(path ? dirname(path) : app.getPath("temp"), `.mdpdf-preview-${process.pid}.md`); }
+function previewPath(path?: string): string { return join(path ? dirname(path) : app.getPath("temp"), `.inkframe-preview-${process.pid}-${randomUUID()}.md`); }
+async function renderPdfPreview(content: string, activePath: string | undefined, options: ConvertOptions) {
+  const inputPath = previewPath(activePath);
+  const previewRoot = await mkdtemp(join(app.getPath("temp"), `inkframe-preview-${process.pid}-`));
+  const pdfPath = join(previewRoot, "preview.pdf");
+  const pagePrefix = join(previewRoot, "page");
+  try {
+    await writeFile(inputPath, content, "utf8");
+    const frontmatter = matter(content).data as { title?: string };
+    const previewOptions = !options.title && !frontmatter.title && activePath ? { ...options, title: basename(activePath) } : options;
+    await convertMarkdown(inputPath, { ...previewOptions, output: pdfPath, compress: false, imageOptimize: false });
+    try {
+      await execFileAsync("pdftoppm", ["-png", "-r", "144", pdfPath, pagePrefix], { maxBuffer: 32 * 1024 * 1024 });
+    } catch (error) {
+      throw new Error(`PDFプレビューの画像化に失敗しました。Poppler（pdftoppm）が利用できるか確認してください。${error instanceof Error ? `\n${error.message}` : ""}`);
+    }
+    const pageFiles = (await readdir(previewRoot)).filter(name => /^page-\d+\.png$/.test(name)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const pages = await Promise.all(pageFiles.map(async name => `data:image/png;base64,${(await readFile(join(previewRoot, name))).toString("base64")}`));
+    if (!pages.length) throw new Error("PDFプレビューのページを生成できませんでした。");
+    return { pages, pageCount: pages.length };
+  } finally {
+    await Promise.all([rm(previewRoot, { recursive: true, force: true }), rm(inputPath, { force: true })]);
+  }
+}
 
 app.whenReady().then(async () => {
   ipcMain.handle("document:open", chooseMarkdown);
@@ -86,9 +110,9 @@ app.whenReady().then(async () => {
   ipcMain.handle("document:read", async (_event, path: string) => { const document = { path, content: await readFile(path, "utf8") }; watchDocument(path); return document; });
   ipcMain.handle("document:watch", (_event, path?: string) => { watchDocument(path); return Boolean(path); });
   ipcMain.handle("document:inspect", (_event, content: string) => inspectMarkdown(content));
-  ipcMain.handle("preview:render", async (_event, content: string, activePath: string | undefined, options: ConvertOptions) => { const path = previewPath(activePath); await writeFile(path, content, "utf8"); return (await markdownToHtml(path, options)).html; });
+  ipcMain.handle("preview:render", async (_event, content: string, activePath: string | undefined, options: ConvertOptions) => renderPdfPreview(content, activePath, options));
   ipcMain.handle("pdf:generate", async (_event, content: string, activePath: string | undefined, options: ConvertOptions) => {
-    const inputPath = activePath ?? join(app.getPath("documents"), "mdpdf-document.md"); await mkdir(dirname(inputPath), { recursive: true }); await writeFile(inputPath, content, "utf8");
+    const inputPath = activePath ?? join(app.getPath("documents"), "inkframe-document.md"); await mkdir(dirname(inputPath), { recursive: true }); await writeFile(inputPath, content, "utf8");
     const result = await dialog.showSaveDialog(mainWindow!, { title: "PDF を保存", defaultPath: options.output ?? inputPath.replace(/\.(?:md|markdown)$/i, ".pdf"), filters: [{ name: "PDF", extensions: ["pdf"] }] });
     if (result.canceled || !result.filePath) return undefined;
     const outputPath = await convertMarkdown(inputPath, { ...options, output: result.filePath }); await record({ path: inputPath, outputPath }); await recordSettings(options);
@@ -111,7 +135,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("templates:delete", async (_event, id: string) => { await writeTemplates((await templates()).filter((template) => template.id !== id)); });
   ipcMain.handle("settings-history:list", settingsHistory);
-  mainWindow = new BrowserWindow({ width: 1500, height: 960, minWidth: 1100, minHeight: 700, title: "mdpdf", webPreferences: { contextIsolation: true, nodeIntegration: false, preload: resolve(import.meta.dirname, "../../desktop/preload.cjs") } });
+  mainWindow = new BrowserWindow({ width: 1500, height: 960, minWidth: 1100, minHeight: 700, title: "Inkframe", webPreferences: { contextIsolation: true, nodeIntegration: false, preload: resolve(import.meta.dirname, "../../desktop/preload.cjs") } });
   await mainWindow.loadFile(resolve(import.meta.dirname, "../../desktop/renderer-dist/index.html"));
 });
 app.on("window-all-closed", () => { activeWatcher?.close(); if (process.platform !== "darwin") app.quit(); });

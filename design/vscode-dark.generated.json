@@ -1,6 +1,6 @@
 {
   "$schema": "vscode://schemas/color-theme",
-  "name": "VS Code Dark (generated for mdpdf)",
+  "name": "VS Code Dark (generated for Inkframe)",
   "type": "dark",
   "colors": {
     "activityBar.background": "#191a1b",

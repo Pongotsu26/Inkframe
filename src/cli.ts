@@ -31,7 +31,7 @@ async function outputFor(input: string, outDirectory: string): Promise<string> {
 }
 
 const program = new Command();
-program.name("mdpdf").enablePositionalOptions().description("ローカルフォント対応の Markdown → PDF 変換 CLI").version("0.2.0")
+program.name("inkframe").enablePositionalOptions().description("Markdownを美しいPDFに仕上げるローカル組版CLI").version("0.2.0")
   .argument("[input]", "変換する Markdown ファイル")
   .option("-o, --output <path>", "出力 PDF のパス")
   .option("--theme <name>", "テーマ名（README のテーマ一覧を参照）")

@@ -1,6 +1,6 @@
-# mdpdf
+# Inkframe
 
-ローカル環境だけで Markdown を品質の高い PDF に変換する TypeScript 製 CLI です。日本語フォント、GFM、KaTeX、Mermaid、目次、ページ番号に対応します。
+Markdownを、美しく読みやすいPDFへ。Inkframeはローカル環境で完結するTypeScript製の組版スタジオです。日本語フォント、GFM、KaTeX、Mermaid、目次、ページ番号に対応します。
 
 ## セットアップ
 
@@ -20,9 +20,9 @@ node dist/cli.js examples/report.md -o output/report.pdf
 ## 使用例
 
 ```bash
-mdpdf report.md -o report.pdf
+inkframe report.md -o report.pdf
 
-mdpdf report.md \
+inkframe report.md \
   --theme university \
   --body-font "BIZ UDPGothic" \
   --heading-font "BIZ UDPMincho" \
@@ -30,27 +30,27 @@ mdpdf report.md \
   --toc \
   --page-number
 
-mdpdf README.md --theme github --code-theme github-dark --mermaid --math
+inkframe README.md --theme github --code-theme github-dark --mermaid --math
 
-mdpdf report.md --cover
+inkframe report.md --cover
 
-mdpdf fonts
+inkframe fonts
 ```
 
 ## 実用コマンド（Phase 2）
 
 ```bash
 # 保存時に再生成
-mdpdf watch report.md -o report.pdf
+inkframe watch report.md -o report.pdf
 
 # 章ごとの Markdown を 1 つの PDF に結合
-mdpdf build intro.md chapter1.md chapter2.md -o book.pdf --compress
+inkframe build intro.md chapter1.md chapter2.md -o book.pdf --compress
 
 # フォルダを再帰的に一括変換
-mdpdf batch ./docs --out ./pdf --image-optimize --image-quality 85
+inkframe batch ./docs --out ./pdf --image-optimize --image-quality 85
 
 # 既存 PDF を結合
-mdpdf merge a.pdf b.pdf -o merged.pdf
+inkframe merge a.pdf b.pdf -o merged.pdf
 ```
 
 `--compress`、`--image-optimize`、`build`、`merge` は Ghostscript を利用します。macOS では `brew install ghostscript`、Windows/Linux では OS のパッケージ管理機能で Ghostscript を導入してください。
@@ -63,7 +63,7 @@ Electron 製のローカル Desktop アプリを起動できます。
 pnpm desktop
 ```
 
-Desktop 版は Markdown エディタとライブプレビュー、テーマ・用紙・余白・フォントの選択、PDF ワンクリック生成と生成 PDF のプレビューを提供します。Markdown をドロップすると開き、画像をドロップすると画像 Markdown をカーソル位置に挿入します。テンプレートの保存・適用・削除、最近使ったファイル、PDF 生成時の最近使った設定は OS のアプリデータ領域にローカル保存され、Markdown を外部送信しません。
+Desktop版は、実際のPDFと同一レイアウトのページプレビュー、テーマ・用紙・余白・フォントの選択、PDFワンクリック生成を提供します。Markdownをドロップして開けるほか、アウトライン・Issues・Assets・履歴を確認できます。設定や履歴はOSのアプリデータ領域にローカル保存され、Markdownを外部送信しません。
 
 主なオプション:
 
@@ -79,7 +79,7 @@ Desktop 版は Markdown エディタとライブプレビュー、テーマ・�
 
 ## 設定と優先順位
 
-入力ファイルの親ディレクトリから上へ `mdpdf.config.json` または JSON 形式の `.mdpdfrc` を探索します。`--config` で明示指定もできます。設定の優先順位は、組み込み既定値 → 設定ファイル → YAML frontmatter → CLI 引数です。
+入力ファイルの親ディレクトリから上へ `inkframe.config.json` またはJSON形式の `.inkframerc` を探索します。旧名の `mdpdf.config.json` と `.mdpdfrc` も互換性のため読み込めます。設定の優先順位は、組み込み既定値 → 設定ファイル → YAML frontmatter → CLI引数です。
 
 ```json
 {

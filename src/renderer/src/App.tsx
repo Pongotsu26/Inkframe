@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ConvertOptions, DocumentFile, ExportResult, HistoryItem, Inspection, Theme } from "./types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ConvertOptions, DocumentFile, ExportResult, HistoryItem, Inspection, PreviewResult, Theme } from "./types";
 
 const EMPTY_INSPECTION: Inspection = { outline: [], issues: [], assets: [] };
 const DEFAULT_OPTIONS: ConvertOptions = { theme: "github", paper: "A4", margin: "18mm", orientation: "portrait", toc: false, pageNumber: true, cover: false, font: {} };
@@ -20,7 +20,7 @@ function SettingCard({ title, description, children }: { title: string; descript
 function Home({ history, onOpen, onOpenFolder, onRecent, onDrop }: { history: HistoryItem[]; onOpen: () => void; onOpenFolder: () => void; onRecent: (path: string) => void; onDrop: (file: File) => void }) {
   const drop = (event: React.DragEvent) => { event.preventDefault(); const file = event.dataTransfer.files[0]; if (file) onDrop(file); };
   return <main className="home">
-    <div className="home-content"><div className="brand-mark">M</div><h1>mdpdf</h1><p>Markdownを、読みやすく美しいPDFへ仕上げるローカルスタジオ。</p>
+    <div className="home-content"><div className="brand-mark">I</div><h1>Inkframe</h1><p>Markdownを、読みやすく美しいPDFへ仕上げるローカル組版スタジオ。</p>
       <div className="home-actions"><Button primary onClick={onOpen}>Markdownファイルを開く</Button><Button onClick={onOpenFolder}>フォルダを開く</Button></div>
       <button className="drop-zone" onDragOver={event => event.preventDefault()} onDrop={drop}>Markdownをここにドロップ<span>.md / .markdown</span></button>
       <section className="home-section"><h2>テンプレートから始める</h2><div className="template-grid">{STARTER_TEMPLATES.map((name, index) => <button className="template-card" key={name} onClick={onOpen}><span className={`template-preview preview-${index % 3}`} /><strong>{name}</strong><small>{index === 5 ? "自由な文書" : "整った初期スタイル"}</small></button>)}</div></section>
@@ -30,7 +30,7 @@ function Home({ history, onOpen, onOpenFolder, onRecent, onDrop }: { history: Hi
 }
 
 function TopBar({ path, status, watchStatus, onOpenEditor, onReveal, onRefresh, onExport }: { path: string; status: string; watchStatus: string; onOpenEditor: () => void; onReveal: () => void; onRefresh: () => void; onExport: () => void }) {
-  return <header className="topbar"><div className="topbar-left"><span className="app-name">mdpdf</span><span className="file-name" title={path}>{path.split("/").pop()}</span><span className={`status-dot ${watchStatus === "監視中" ? "online" : ""}`} /> <span className="status-text">{watchStatus}</span><span className="render-status">{status}</span></div>
+  return <header className="topbar"><div className="topbar-left"><span className="app-name">Inkframe</span><span className="file-name" title={path}>{path.split("/").pop()}</span><span className={`status-dot ${watchStatus === "監視中" ? "online" : ""}`} /> <span className="status-text">{watchStatus}</span><span className="render-status">{status}</span></div>
     <div className="topbar-actions"><Button onClick={onOpenEditor}>VS Codeで開く</Button><Button onClick={onReveal}>Finderに表示</Button><Button onClick={onRefresh}>プレビュー更新</Button><Button primary onClick={onExport}>PDFを書き出す</Button></div></header>;
 }
 
@@ -47,11 +47,11 @@ function LeftSidebar({ document, inspection, history, active, onActive, onOpenLi
 }
 function Empty({ label, success }: { label: string; success?: boolean }) { return <div className={`empty ${success ? "success" : ""}`}><span>{success ? "✓" : "—"}</span>{label}</div>; }
 
-function PdfPreviewPane({ html, status, error }: { html: string; status: string; error?: string }) {
+function PdfPreviewPane({ preview, status, error }: { preview?: PreviewResult; status: string; error?: string }) {
   const [zoom, setZoom] = useState(82);
-  return <main className="preview-pane"><div className="preview-toolbar"><span>PDFプレビュー</span><span>{status}</span></div><div className="page-stage">
+  return <main className="preview-pane"><div className="preview-toolbar"><span>PDFプレビュー</span><span>{preview ? `${preview.pageCount}ページ · ${status}` : status}</span></div><div className="page-stage">
     {status === "レンダリング中" && <div className="rendering-banner"><i /> レイアウトを組み立てています</div>}
-    {error ? <div className="preview-error"><strong>プレビューを更新できませんでした</strong><span>{error}</span></div> : <div className={`paper-wrap ${status === "レンダリング中" ? "loading" : ""}`} style={{ width: `${zoom}%` }}><iframe title="PDF preview" srcDoc={html} /></div>}
+    {error ? <div className="preview-error"><strong>プレビューを更新できませんでした</strong><span>{error}</span></div> : <div className={`pdf-pages ${status === "レンダリング中" ? "loading" : ""}`} style={{ width: `${zoom}%` }}>{preview?.pages.map((page, index) => <figure className="pdf-page" key={index}><img src={page} alt={`PDF ${index + 1}ページ`} /><figcaption>{index + 1} / {preview.pageCount}</figcaption></figure>)}</div>}
   </div><div className="zoom-controls"><button onClick={() => setZoom(Math.max(40, zoom - 10))}>−</button><span>{zoom}%</span><button onClick={() => setZoom(Math.min(130, zoom + 10))}>＋</button><button onClick={() => setZoom(82)}>幅に合わせる</button></div></main>;
 }
 
@@ -74,12 +74,12 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
 function formatBytes(bytes: number) { return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
 
 export function App() {
-  const [document, setDocument] = useState<DocumentFile>(); const [html, setHtml] = useState(""); const [status, setStatus] = useState("待機中"); const [watchStatus, setWatchStatus] = useState("未監視"); const [error, setError] = useState<string>();
+  const [document, setDocument] = useState<DocumentFile>(); const [preview, setPreview] = useState<PreviewResult>(); const [status, setStatus] = useState("待機中"); const [watchStatus, setWatchStatus] = useState("未監視"); const [error, setError] = useState<string>();
   const [inspection, setInspection] = useState(EMPTY_INSPECTION); const [history, setHistory] = useState<HistoryItem[]>([]); const [themes, setThemes] = useState<Theme[]>([]); const [fonts, setFonts] = useState<string[]>([]); const [options, setOptions] = useState(DEFAULT_OPTIONS); const [side, setSide] = useState<SideSection>("Source"); const [tab, setTab] = useState<InspectorTab>("Style"); const [result, setResult] = useState<ExportResult>();
   const renderId = useRef(0);
   const load = useCallback(async (next: DocumentFile) => { setDocument(next); setWatchStatus(await window.mdpdf.watch(next.path) ? "監視中" : "監視エラー"); setHistory(await window.mdpdf.history()); }, []);
   const open = useCallback(async () => { const next = await window.mdpdf.open(); if (next) await load(next); }, [load]);
-  const render = useCallback(async () => { if (!document) return; const id = ++renderId.current; setStatus("レンダリング中"); setError(undefined); try { const [nextHtml, nextInspection] = await Promise.all([window.mdpdf.renderPreview(document.content, document.path, options), window.mdpdf.inspect(document.content)]); if (id === renderId.current) { setHtml(nextHtml); setInspection(nextInspection); setStatus("更新済み"); } } catch (caught) { if (id === renderId.current) { setError(caught instanceof Error ? caught.message : String(caught)); setStatus("エラー"); } } }, [document, options]);
+  const render = useCallback(async () => { if (!document) return; const id = ++renderId.current; setStatus("レンダリング中"); setError(undefined); try { const [nextPreview, nextInspection] = await Promise.all([window.mdpdf.renderPreview(document.content, document.path, options), window.mdpdf.inspect(document.content)]); if (id === renderId.current) { setPreview(nextPreview); setInspection(nextInspection); setStatus("更新済み"); } } catch (caught) { if (id === renderId.current) { setError(caught instanceof Error ? caught.message : String(caught)); setStatus("エラー"); } } }, [document, options]);
   useEffect(() => { Promise.all([window.mdpdf.themes(), window.mdpdf.fonts(), window.mdpdf.history()]).then(([nextThemes, nextFonts, nextHistory]) => { setThemes(nextThemes); setFonts(nextFonts); setHistory(nextHistory); }); }, []);
   useEffect(() => { const timer = window.setTimeout(render, 180); return () => window.clearTimeout(timer); }, [render]);
   useEffect(() => window.mdpdf.onDocumentChanged(async path => { if (document?.path === path) { setStatus("変更を検出"); await load(await window.mdpdf.read(path)); } }), [document?.path, load]);
@@ -88,5 +88,5 @@ export function App() {
   const openLine = (line: number, column = 1) => document && window.mdpdf.openEditor(document.path, line, column);
   const drop = async (file: File) => { if (/\.(md|markdown)$/i.test(file.name)) await load(await window.mdpdf.read(window.mdpdf.filePath(file))); };
   if (!document) return <Home history={history} onOpen={open} onOpenFolder={() => window.mdpdf.openFolder().then(next => next && load(next))} onRecent={path => window.mdpdf.read(path).then(load)} onDrop={drop} />;
-  return <div className="app-shell"><TopBar path={document.path} status={status} watchStatus={watchStatus} onOpenEditor={() => openLine(1)} onReveal={() => window.mdpdf.reveal(document.path)} onRefresh={render} onExport={exportPdf} /><div className="workspace"><LeftSidebar document={document} inspection={inspection} history={history} active={side} onActive={setSide} onOpenLine={openLine} onHistory={path => window.mdpdf.read(path).then(load)} /><PdfPreviewPane html={html} status={status} error={error} /><RightInspector tab={tab} onTab={setTab} options={options} onOptions={setOptions} themes={themes} fonts={fonts} result={result} onExport={exportPdf} onOpenResult={() => result && window.mdpdf.openPath(result.outputPath)} onRevealResult={() => result && window.mdpdf.reveal(result.outputPath)} /></div></div>;
+  return <div className="app-shell"><TopBar path={document.path} status={status} watchStatus={watchStatus} onOpenEditor={() => openLine(1)} onReveal={() => window.mdpdf.reveal(document.path)} onRefresh={render} onExport={exportPdf} /><div className="workspace"><LeftSidebar document={document} inspection={inspection} history={history} active={side} onActive={setSide} onOpenLine={openLine} onHistory={path => window.mdpdf.read(path).then(load)} /><PdfPreviewPane preview={preview} status={status} error={error} /><RightInspector tab={tab} onTab={setTab} options={options} onOptions={setOptions} themes={themes} fonts={fonts} result={result} onExport={exportPdf} onOpenResult={() => result && window.mdpdf.openPath(result.outputPath)} onRevealResult={() => result && window.mdpdf.reveal(result.outputPath)} /></div></div>;
 }

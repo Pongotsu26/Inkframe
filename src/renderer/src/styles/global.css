@@ -82,9 +82,11 @@ input[type="range"] { padding: 0; accent-color: var(--accent); }
 .preview-pane { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: 34px 1fr; background: var(--bg-preview); }
 .preview-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 0 13px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 11px; }
 .page-stage { min-height: 0; overflow: auto; padding: 34px 42px 80px; }
-.paper-wrap { position: relative; aspect-ratio: 210 / 297; min-width: 360px; max-width: 880px; margin: 0 auto; border: 1px solid var(--border-subtle); background: var(--bg-paper); box-shadow: var(--paper-shadow); transition: width .12s ease; }
-.paper-wrap iframe { display: block; width: 100%; height: 100%; border: 0; background: var(--bg-paper); }
-.paper-wrap.loading::after { content: ""; position: absolute; inset: 0; background: var(--bg-paper); opacity: .72; }
+.pdf-pages { position: relative; min-width: 360px; max-width: 880px; margin: 0 auto; transition: width .12s ease; }
+.pdf-page { position: relative; width: 100%; margin: 0 0 28px; border: 1px solid var(--border-subtle); background: var(--bg-paper); box-shadow: var(--paper-shadow); }
+.pdf-page img { display: block; width: 100%; height: auto; background: var(--bg-paper); }
+.pdf-page figcaption { position: absolute; right: 0; bottom: -22px; left: 0; color: var(--text-secondary); text-align: center; font-size: 10px; }
+.pdf-pages.loading::after { content: ""; position: absolute; inset: 0; background: var(--bg-paper); opacity: .72; }
 .rendering-banner { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; width: max-content; margin: 0 auto 12px; padding: 6px 10px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--bg-panel-elevated); color: var(--text-secondary); box-shadow: var(--paper-shadow); }
 .rendering-banner i { width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite alternate; }
 @keyframes pulse { to { opacity: .3; } }

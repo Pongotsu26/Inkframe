@@ -4,6 +4,7 @@ export interface ConvertOptions {
 }
 export interface DocumentFile { path: string; content: string }
 export interface ExportResult { outputPath: string; fileName: string; fileSize: number; pageCount?: number }
+export interface PreviewResult { pages: string[]; pageCount: number }
 export interface Inspection {
   outline: Array<{ level: number; text: string; line: number }>;
   issues: Array<{ severity: "error" | "warning" | "info"; message: string; line: number; column: number }>;
@@ -13,7 +14,7 @@ export interface Theme { id: string; name: string }
 export interface HistoryItem { path: string; outputPath?: string; openedAt: string }
 export interface MdpdfApi {
   open(): Promise<DocumentFile | undefined>; openFolder(): Promise<DocumentFile | undefined>; read(path: string): Promise<DocumentFile>;
-  watch(path?: string): Promise<boolean>; inspect(content: string): Promise<Inspection>; renderPreview(content: string, path: string | undefined, options: ConvertOptions): Promise<string>;
+  watch(path?: string): Promise<boolean>; inspect(content: string): Promise<Inspection>; renderPreview(content: string, path: string | undefined, options: ConvertOptions): Promise<PreviewResult>;
   generatePdf(content: string, path: string | undefined, options: ConvertOptions): Promise<ExportResult | undefined>;
   fonts(): Promise<string[]>; themes(): Promise<Theme[]>; history(): Promise<HistoryItem[]>;
   openEditor(path: string, line?: number, column?: number): Promise<{ ok: boolean; message?: string }>;

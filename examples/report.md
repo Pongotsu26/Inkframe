@@ -1,5 +1,5 @@
 ---
-title: Markdown PDF サンプルレポート
+title: Inkframe サンプルレポート
 author: 山田 太郎
 date: 2026-07-10
 theme: university

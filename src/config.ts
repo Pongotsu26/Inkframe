@@ -8,7 +8,7 @@ export async function findConfig(inputPath: string, explicitPath?: string): Prom
   let current = dirname(resolve(inputPath));
   const root = parse(current).root;
   while (true) {
-    for (const name of ["mdpdf.config.json", ".mdpdfrc"]) {
+    for (const name of ["inkframe.config.json", ".inkframerc", "mdpdf.config.json", ".mdpdfrc"]) {
       const candidate = join(current, name);
       try {
         await access(candidate);
