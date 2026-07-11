@@ -1,7 +1,7 @@
 {
   "name": "inkframe",
   "productName": "Inkframe",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A local-first Markdown typesetting studio for polished PDFs",
   "packageManager": "pnpm@11.9.0",
   "type": "module",
@@ -12,12 +12,34 @@
   "files": [
     "dist",
     "themes",
-    "desktop"
+    "desktop",
+    "assets"
   ],
+  "build": {
+    "appId": "dev.inkframe.app",
+    "productName": "Inkframe",
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "icon": "assets/Inkframe.icon"
+    },
+    "dmg": {
+      "icon": "assets/icon.icns"
+    },
+    "linux": {
+      "icon": "assets/icon.png"
+    },
+    "win": {
+      "icon": "assets/icon.png"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && pnpm renderer:build",
     "renderer:build": "vite build",
     "renderer:dev": "vite",
+    "icon:build": "magick -background none assets/icon.svg -alpha on -depth 8 -define png:color-type=6 assets/icon.png && png2icons assets/icon.png assets/icon -icns -bc",
+    "package:mac": "node scripts/package-mac.mjs",
     "theme:extract": "node scripts/vscode-theme-to-css.mjs design/vscode-dark.generated.json src/renderer/src/styles/vscode-theme.css",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
@@ -33,6 +55,7 @@
     "gray-matter": "^4.0.3",
     "katex": "^0.16.22",
     "mermaid": "^11.12.1",
+    "pdfjs-dist": "^5.7.284",
     "playwright": "^1.55.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
@@ -51,6 +74,8 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
+    "png2icons": "^2.0.1",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vite": "^8.1.4",

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
 import matter from "gray-matter";
 import { listFonts } from "../fonts.js";
 import { convertMarkdown, type ConvertOptions } from "../renderer.js";
@@ -79,27 +79,24 @@ async function renderPdfPreview(content: string, activePath: string | undefined,
   const inputPath = previewPath(activePath);
   const previewRoot = await mkdtemp(join(app.getPath("temp"), `inkframe-preview-${process.pid}-`));
   const pdfPath = join(previewRoot, "preview.pdf");
-  const pagePrefix = join(previewRoot, "page");
   try {
     await writeFile(inputPath, content, "utf8");
     const frontmatter = matter(content).data as { title?: string };
     const previewOptions = !options.title && !frontmatter.title && activePath ? { ...options, title: basename(activePath) } : options;
     await convertMarkdown(inputPath, { ...previewOptions, output: pdfPath, compress: false, imageOptimize: false });
-    try {
-      await execFileAsync("pdftoppm", ["-png", "-r", "144", pdfPath, pagePrefix], { maxBuffer: 32 * 1024 * 1024 });
-    } catch (error) {
-      throw new Error(`PDFプレビューの画像化に失敗しました。Poppler（pdftoppm）が利用できるか確認してください。${error instanceof Error ? `\n${error.message}` : ""}`);
-    }
-    const pageFiles = (await readdir(previewRoot)).filter(name => /^page-\d+\.png$/.test(name)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    const pages = await Promise.all(pageFiles.map(async name => `data:image/png;base64,${(await readFile(join(previewRoot, name))).toString("base64")}`));
-    if (!pages.length) throw new Error("PDFプレビューのページを生成できませんでした。");
-    return { pages, pageCount: pages.length };
+    return { data: new Uint8Array(await readFile(pdfPath)) };
   } finally {
     await Promise.all([rm(previewRoot, { recursive: true, force: true }), rm(inputPath, { force: true })]);
   }
 }
 
 app.whenReady().then(async () => {
+  const iconPath = resolve(import.meta.dirname, "../../assets/icon.png");
+  const appIcon = nativeImage.createFromPath(iconPath);
+  // Development runs are hosted by Electron.app, so give them a useful Dock
+  // icon. Packaged builds must keep the bundle-provided Assets.car icon; an
+  // explicit setIcon() would replace the Liquid Glass icon only while running.
+  if (process.platform === "darwin" && !app.isPackaged && !appIcon.isEmpty()) app.dock?.setIcon(appIcon);
   ipcMain.handle("document:open", chooseMarkdown);
   ipcMain.handle("folder:open", chooseFolder);
   ipcMain.handle("document:save", async (_event, path: string | undefined, content: string) => {
@@ -135,7 +132,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("templates:delete", async (_event, id: string) => { await writeTemplates((await templates()).filter((template) => template.id !== id)); });
   ipcMain.handle("settings-history:list", settingsHistory);
-  mainWindow = new BrowserWindow({ width: 1500, height: 960, minWidth: 1100, minHeight: 700, title: "Inkframe", webPreferences: { contextIsolation: true, nodeIntegration: false, preload: resolve(import.meta.dirname, "../../desktop/preload.cjs") } });
+  mainWindow = new BrowserWindow({ width: 1500, height: 960, minWidth: 1100, minHeight: 700, title: "Inkframe", icon: iconPath, webPreferences: { contextIsolation: true, nodeIntegration: false, preload: resolve(import.meta.dirname, "../../desktop/preload.cjs") } });
   await mainWindow.loadFile(resolve(import.meta.dirname, "../../desktop/renderer-dist/index.html"));
 });
 app.on("window-all-closed", () => { activeWatcher?.close(); if (process.platform !== "darwin") app.quit(); });

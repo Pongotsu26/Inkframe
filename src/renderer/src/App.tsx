@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConvertOptions, DocumentFile, ExportResult, HistoryItem, Inspection, PreviewResult, Theme } from "./types";
+import { renderPdfPages } from "./pdf-preview";
 
 const EMPTY_INSPECTION: Inspection = { outline: [], issues: [], assets: [] };
 const DEFAULT_OPTIONS: ConvertOptions = { theme: "github", paper: "A4", margin: "18mm", orientation: "portrait", toc: false, pageNumber: true, cover: false, font: {} };
@@ -79,7 +80,7 @@ export function App() {
   const renderId = useRef(0);
   const load = useCallback(async (next: DocumentFile) => { setDocument(next); setWatchStatus(await window.mdpdf.watch(next.path) ? "監視中" : "監視エラー"); setHistory(await window.mdpdf.history()); }, []);
   const open = useCallback(async () => { const next = await window.mdpdf.open(); if (next) await load(next); }, [load]);
-  const render = useCallback(async () => { if (!document) return; const id = ++renderId.current; setStatus("レンダリング中"); setError(undefined); try { const [nextPreview, nextInspection] = await Promise.all([window.mdpdf.renderPreview(document.content, document.path, options), window.mdpdf.inspect(document.content)]); if (id === renderId.current) { setPreview(nextPreview); setInspection(nextInspection); setStatus("更新済み"); } } catch (caught) { if (id === renderId.current) { setError(caught instanceof Error ? caught.message : String(caught)); setStatus("エラー"); } } }, [document, options]);
+  const render = useCallback(async () => { if (!document) return; const id = ++renderId.current; setStatus("レンダリング中"); setError(undefined); try { const [previewPdf, nextInspection] = await Promise.all([window.mdpdf.renderPreview(document.content, document.path, options), window.mdpdf.inspect(document.content)]); const nextPreview = await renderPdfPages(previewPdf); if (id === renderId.current) { setPreview(nextPreview); setInspection(nextInspection); setStatus("更新済み"); } } catch (caught) { if (id === renderId.current) { setError(caught instanceof Error ? caught.message : String(caught)); setStatus("エラー"); } } }, [document, options]);
   useEffect(() => { Promise.all([window.mdpdf.themes(), window.mdpdf.fonts(), window.mdpdf.history()]).then(([nextThemes, nextFonts, nextHistory]) => { setThemes(nextThemes); setFonts(nextFonts); setHistory(nextHistory); }); }, []);
   useEffect(() => { const timer = window.setTimeout(render, 180); return () => window.clearTimeout(timer); }, [render]);
   useEffect(() => window.mdpdf.onDocumentChanged(async path => { if (document?.path === path) { setStatus("変更を検出"); await load(await window.mdpdf.read(path)); } }), [document?.path, load]);
