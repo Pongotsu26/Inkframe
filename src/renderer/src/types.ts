@@ -114,6 +114,10 @@ export interface MdpdfApi {
   onDocumentChanged(callback: (path: string) => void): () => void;
   onWatchError(callback: (path: string) => void): () => void;
   onOpenSettings(callback: () => void): () => void;
+  onMenuAction(callback: (action: string, value?: unknown) => void): () => void;
+  updateMenuDocumentOptions(
+    options: Pick<ConvertOptions, "toc" | "cover" | "pageNumber">,
+  ): Promise<void>;
 }
 declare global {
   interface Window {

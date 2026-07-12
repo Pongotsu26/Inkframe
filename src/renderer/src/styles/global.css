@@ -42,8 +42,8 @@ button:disabled {
   cursor: not-allowed;
 }
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 0;
+  height: 0;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
@@ -331,6 +331,29 @@ input[type="range"] {
 .add-document:hover {
   background: var(--button-secondary-hover);
 }
+.pane-toggles {
+  display: flex;
+  gap: 3px;
+}
+.pane-toggle {
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.pane-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.pane-toggle.active {
+  border-color: var(--input-border);
+  color: var(--accent);
+  background: var(--button-secondary-bg);
+}
 .app-name {
   font-weight: 700;
   letter-spacing: 0.4px;
@@ -425,6 +448,15 @@ input[type="range"] {
 .workspace {
   min-height: 0;
   display: grid;
+  grid-template-columns: minmax(420px, 1fr);
+}
+.workspace.left-pane-open {
+  grid-template-columns: 280px minmax(420px, 1fr);
+}
+.workspace.right-pane-open {
+  grid-template-columns: minmax(420px, 1fr) 360px;
+}
+.workspace.left-pane-open.right-pane-open {
   grid-template-columns: 280px minmax(420px, 1fr) 360px;
 }
 
@@ -604,13 +636,22 @@ input[type="range"] {
   color: var(--success);
 }
 
-.preview-pane {
+.preview-stack {
   position: relative;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+}
+.preview-pane {
+  position: absolute;
+  inset: 0;
   display: grid;
   grid-template-rows: 34px 1fr;
   background: var(--bg-preview);
+}
+.preview-pane.inactive-document {
+  visibility: hidden;
+  pointer-events: none;
 }
 .preview-toolbar {
   display: flex;
@@ -627,11 +668,17 @@ input[type="range"] {
   overflow: hidden;
 }
 .html-preview {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   border: 0;
   background: var(--bg-preview);
+}
+.html-preview.inactive {
+  visibility: hidden;
+  pointer-events: none;
 }
 .rendering-banner {
   position: sticky;
@@ -1124,8 +1171,14 @@ input[type="range"] {
 }
 
 @media (max-width: 1220px) {
-  .workspace {
+  .workspace.left-pane-open.right-pane-open {
     grid-template-columns: 240px minmax(380px, 1fr) 320px;
+  }
+  .workspace.left-pane-open:not(.right-pane-open) {
+    grid-template-columns: 240px minmax(380px, 1fr);
+  }
+  .workspace.right-pane-open:not(.left-pane-open) {
+    grid-template-columns: minmax(380px, 1fr) 320px;
   }
   .topbar .status-text,
   .render-status {

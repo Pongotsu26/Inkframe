@@ -1,4 +1,10 @@
-import { watch, type FSWatcher } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  watch,
+  writeFileSync,
+  type FSWatcher,
+} from "node:fs";
 import {
   mkdir,
   readFile,
@@ -22,6 +28,7 @@ import {
   Menu,
   nativeImage,
   shell,
+  type MenuItemConstructorOptions,
 } from "electron";
 import matter from "gray-matter";
 import { listFonts } from "../fonts.js";
@@ -53,8 +60,16 @@ interface AppSettings {
   defaultTheme?: string;
   defaultOptions?: ConvertOptions;
 }
+interface WindowState {
+  bounds?: { width: number; height: number; x?: number; y?: number };
+  maximized?: boolean;
+}
 let mainWindow: BrowserWindow | undefined;
 let activeWatcher: FSWatcher | undefined;
+let currentMenuDocumentOptions: Pick<
+  ConvertOptions,
+  "toc" | "cover" | "pageNumber"
+> = {};
 const execFileAsync = promisify(execFile);
 function historyPath(): string {
   return join(app.getPath("userData"), "history.json");
@@ -70,6 +85,24 @@ function customThemesPath(): string {
 }
 function appSettingsPath(): string {
   return join(app.getPath("userData"), "settings.json");
+}
+function windowStatePath(): string {
+  return join(app.getPath("userData"), "window-state.json");
+}
+function readWindowState(): WindowState {
+  try {
+    return JSON.parse(readFileSync(windowStatePath(), "utf8")) as WindowState;
+  } catch {
+    return {};
+  }
+}
+function saveWindowState(window: BrowserWindow): void {
+  const state: WindowState = {
+    bounds: window.getNormalBounds(),
+    maximized: window.isMaximized(),
+  };
+  mkdirSync(dirname(windowStatePath()), { recursive: true });
+  writeFileSync(windowStatePath(), JSON.stringify(state, null, 2));
 }
 async function appSettings(): Promise<AppSettings> {
   try {
@@ -141,6 +174,7 @@ async function record(item: Omit<HistoryItem, "openedAt">): Promise<void> {
   entries.unshift({ ...item, openedAt: new Date().toISOString() });
   await mkdir(dirname(historyPath()), { recursive: true });
   await writeFile(historyPath(), JSON.stringify(entries.slice(0, 20), null, 2));
+  if (app.isReady()) void installApplicationMenu();
 }
 async function templates(): Promise<Template[]> {
   try {
@@ -318,6 +352,7 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle("document:read", async (_event, path: string) => {
     const document = { path, content: await readFile(path, "utf8") };
+    await record({ path });
     watchDocument(path);
     return document;
   });
@@ -520,14 +555,43 @@ app.whenReady().then(async () => {
     );
   });
   ipcMain.handle("settings-history:list", settingsHistory);
+  ipcMain.handle(
+    "menu:document-options",
+    (_event, options: Pick<ConvertOptions, "toc" | "cover" | "pageNumber">) => {
+      currentMenuDocumentOptions = options;
+      const menu = Menu.getApplicationMenu();
+      const values = {
+        "document-toc": options.toc,
+        "document-cover": options.cover,
+        "document-page-number": options.pageNumber,
+      };
+      for (const [id, checked] of Object.entries(values)) {
+        const item = menu?.getMenuItemById(id);
+        if (item) item.checked = Boolean(checked);
+      }
+    },
+  );
+  await createMainWindow(iconPath);
+});
+
+async function createMainWindow(iconPath?: string): Promise<void> {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+  const windowState = readWindowState();
+  const bounds = windowState.bounds;
   mainWindow = new BrowserWindow({
-    width: 1500,
-    height: 960,
+    width: bounds?.width ?? 1500,
+    height: bounds?.height ?? 960,
+    ...(bounds?.x === undefined ? {} : { x: bounds.x }),
+    ...(bounds?.y === undefined ? {} : { y: bounds.y }),
     minWidth: 1100,
     minHeight: 700,
     title: "",
     backgroundColor: "#121314",
-    icon: iconPath,
+    icon: iconPath ?? resolve(import.meta.dirname, "../../assets/icon.png"),
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hiddenInset" as const,
@@ -544,12 +608,42 @@ app.whenReady().then(async () => {
     event.preventDefault();
     mainWindow?.setTitle("");
   });
-  const menu = Menu.buildFromTemplate([
+  mainWindow.on("close", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    saveWindowState(mainWindow);
+  });
+  mainWindow.on("closed", () => {
+    mainWindow = undefined;
+  });
+  if (windowState.maximized) mainWindow.maximize();
+  await installApplicationMenu();
+  await mainWindow.loadFile(
+    resolve(import.meta.dirname, "../../desktop/renderer-dist/index.html"),
+  );
+}
+
+function sendMenuAction(action: string, value?: unknown): void {
+  mainWindow?.webContents.send("menu:action", action, value);
+}
+
+async function installApplicationMenu(): Promise<void> {
+  const recent = await history();
+  const themes = await listThemes(customThemesPath());
+  const template: MenuItemConstructorOptions[] = [
     ...(process.platform === "darwin"
       ? [
           {
             label: app.name,
             submenu: [
+              { role: "about" as const, label: "Inkframe について" },
+              {
+                label: "アップデートを確認…",
+                click: () =>
+                  shell.openExternal(
+                    "https://github.com/Pongotsu26/Inkframe/releases/latest",
+                  ),
+              },
+              { type: "separator" as const },
               {
                 label: "設定…",
                 accelerator: "CommandOrControl+,",
@@ -571,23 +665,199 @@ app.whenReady().then(async () => {
       label: "ファイル",
       submenu: [
         {
-          label: "設定…",
-          accelerator:
-            process.platform === "darwin" ? undefined : "CommandOrControl+,",
-          visible: process.platform !== "darwin",
-          click: () => mainWindow?.webContents.send("settings:open"),
+          label: "新しいタブ",
+          accelerator: "CommandOrControl+T",
+          click: () => sendMenuAction("new-tab"),
         },
-        { role: "close" },
+        {
+          label: "Markdown を開く…",
+          accelerator: "CommandOrControl+O",
+          click: () => sendMenuAction("open"),
+        },
+        {
+          label: "最近使った項目",
+          submenu: recent.length
+            ? recent.map((item) => ({
+                label: basename(item.path),
+                sublabel: item.path,
+                click: () => sendMenuAction("open-recent", item.path),
+              }))
+            : [{ label: "最近使った項目はありません", enabled: false }],
+        },
+        { type: "separator" },
+        {
+          label: "PDF を書き出す…",
+          accelerator: "Shift+CommandOrControl+E",
+          click: () => sendMenuAction("export"),
+        },
+        { type: "separator" },
+        {
+          label: "外部エディタで開く",
+          accelerator: "Alt+CommandOrControl+O",
+          click: () => sendMenuAction("open-editor"),
+        },
+        {
+          label: "Finder に表示",
+          accelerator: "Alt+CommandOrControl+R",
+          click: () => sendMenuAction("reveal"),
+        },
+        { type: "separator" },
+        { role: "close", label: "ウインドウを閉じる" },
       ],
     },
-    { role: "editMenu" },
-    { role: "viewMenu" },
-    { role: "windowMenu" },
-  ]);
-  Menu.setApplicationMenu(menu);
-  await mainWindow.loadFile(
-    resolve(import.meta.dirname, "../../desktop/renderer-dist/index.html"),
-  );
+    {
+      label: "編集",
+      submenu: [
+        { role: "undo", label: "取り消す" },
+        { role: "redo", label: "やり直す" },
+        { type: "separator" },
+        { role: "cut", label: "カット" },
+        { role: "copy", label: "コピー" },
+        { role: "paste", label: "ペースト" },
+        { role: "selectAll", label: "すべて選択" },
+      ],
+    },
+    {
+      label: "表示",
+      submenu: [
+        {
+          label: "拡大",
+          accelerator: "CommandOrControl+Plus",
+          click: () => sendMenuAction("zoom-in"),
+        },
+        {
+          label: "縮小",
+          accelerator: "CommandOrControl+-",
+          click: () => sendMenuAction("zoom-out"),
+        },
+        {
+          label: "実際のサイズ",
+          accelerator: "CommandOrControl+1",
+          click: () => sendMenuAction("zoom-actual"),
+        },
+        {
+          label: "横幅に合わせる",
+          accelerator: "CommandOrControl+2",
+          click: () => sendMenuAction("zoom-fit"),
+        },
+        { role: "togglefullscreen", label: "フルスクリーン" },
+      ],
+    },
+    {
+      label: "文書",
+      submenu: [
+        {
+          id: "document-toc",
+          label: "目次を有効化",
+          type: "checkbox",
+          checked: Boolean(currentMenuDocumentOptions.toc),
+          click: (item) =>
+            sendMenuAction("toggle-option", {
+              key: "toc",
+              value: item.checked,
+            }),
+        },
+        {
+          id: "document-cover",
+          label: "表紙を有効化",
+          type: "checkbox",
+          checked: Boolean(currentMenuDocumentOptions.cover),
+          click: (item) =>
+            sendMenuAction("toggle-option", {
+              key: "cover",
+              value: item.checked,
+            }),
+        },
+        {
+          id: "document-page-number",
+          label: "ページ番号を有効化",
+          type: "checkbox",
+          checked: Boolean(currentMenuDocumentOptions.pageNumber),
+          click: (item) =>
+            sendMenuAction("toggle-option", {
+              key: "pageNumber",
+              value: item.checked,
+            }),
+        },
+        { type: "separator" },
+        {
+          label: "文書設定を開く…",
+          click: () => sendMenuAction("document-settings"),
+        },
+      ],
+    },
+    {
+      label: "テーマ",
+      submenu: [
+        {
+          label: "テーマを選択",
+          submenu: themes.map((theme) => ({
+            label: theme.name,
+            click: () => sendMenuAction("select-theme", theme.id),
+          })),
+        },
+        { type: "separator" },
+        { label: "新しいテーマ…", click: () => sendMenuAction("theme-create") },
+        {
+          label: "テーマを読み込む…",
+          click: () => sendMenuAction("theme-import"),
+        },
+        {
+          label: "現在のテーマを書き出す…",
+          click: () => sendMenuAction("theme-export"),
+        },
+        {
+          label: "現在のテーマを編集",
+          click: () => sendMenuAction("theme-edit"),
+        },
+        { label: "テーマを管理…", click: () => sendMenuAction("theme-manage") },
+      ],
+    },
+    {
+      label: "ウインドウ",
+      submenu: [
+        { role: "minimize", label: "しまう" },
+        { role: "zoom", label: "拡大／縮小" },
+        { type: "separator" },
+        {
+          label: "次のタブを表示",
+          accelerator: "Control+Tab",
+          click: () => sendMenuAction("next-tab"),
+        },
+        {
+          label: "前のタブを表示",
+          accelerator: "Control+Shift+Tab",
+          click: () => sendMenuAction("previous-tab"),
+        },
+        {
+          label: "すべてのタブを表示",
+          click: () => sendMenuAction("show-tabs"),
+        },
+        { role: "front", label: "すべてを手前に移動" },
+      ],
+    },
+    {
+      role: "help",
+      label: "ヘルプ",
+      submenu: [
+        {
+          label: "Inkframe ヘルプ",
+          click: () =>
+            shell.openExternal("https://github.com/Pongotsu26/Inkframe#readme"),
+        },
+        {
+          label: "Markdown 記法リファレンス",
+          click: () => shell.openExternal("https://commonmark.org/help/"),
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+app.on("activate", () => {
+  if (!mainWindow) void createMainWindow();
+  else mainWindow.show();
 });
 app.on("window-all-closed", () => {
   activeWatcher?.close();

@@ -51,6 +51,13 @@ contextBridge.exposeInMainWorld("mdpdf", {
     ipcRenderer.on("settings:open", listener);
     return () => ipcRenderer.removeListener("settings:open", listener);
   },
+  onMenuAction: (callback) => {
+    const listener = (_event, action, value) => callback(action, value);
+    ipcRenderer.on("menu:action", listener);
+    return () => ipcRenderer.removeListener("menu:action", listener);
+  },
+  updateMenuDocumentOptions: (options) =>
+    ipcRenderer.invoke("menu:document-options", options),
   filePath: (file) => webUtils.getPathForFile(file),
   fileUrl: (path) => pathToFileURL(path).href,
 });

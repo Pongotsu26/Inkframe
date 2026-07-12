@@ -18,6 +18,7 @@ const PAGED_POLYFILL_URL = URL.createObjectURL(
 
 const EMPTY_INSPECTION: Inspection = { outline: [], issues: [], assets: [] };
 const DEFAULT_CODE_THEME = "github-dark";
+const PREVIEW_ZOOM_STORAGE_KEY = "inkframe:preview-zoom";
 const CODE_THEMES = [
   { id: "github-dark", name: "GitHub Dark" },
   { id: "light-plus", name: "Light Plus" },
@@ -40,6 +41,12 @@ const DEFAULT_OPTIONS: ConvertOptions = {
   font: {},
   fontSize: { body: 10.5 },
 };
+function savedPreviewZoom(): number | undefined {
+  const value = Number(window.localStorage.getItem(PREVIEW_ZOOM_STORAGE_KEY));
+  return Number.isFinite(value) && value >= 40 && value <= 200
+    ? value
+    : undefined;
+}
 type InspectorTab = "Style" | "Layout" | "Font" | "Export";
 type SideSection = "Source" | "Outline" | "Issues" | "Assets" | "History";
 
@@ -279,6 +286,10 @@ function TopBar({
   onReveal,
   onRefresh,
   onExport,
+  leftPaneOpen,
+  rightPaneOpen,
+  onToggleLeftPane,
+  onToggleRightPane,
 }: {
   path: string;
   documents: DocumentFile[];
@@ -291,6 +302,10 @@ function TopBar({
   onReveal: () => void;
   onRefresh: () => void;
   onExport: () => void;
+  leftPaneOpen: boolean;
+  rightPaneOpen: boolean;
+  onToggleLeftPane: () => void;
+  onToggleRightPane: () => void;
 }) {
   return (
     <header className="topbar">
@@ -345,6 +360,28 @@ function TopBar({
         <Button primary onClick={onExport}>
           PDFを書き出す
         </Button>
+        <div className="pane-toggles">
+          <button
+            className={leftPaneOpen ? "pane-toggle active" : "pane-toggle"}
+            onClick={onToggleLeftPane}
+            title={leftPaneOpen ? "左ペインを閉じる" : "左ペインを開く"}
+            aria-label={leftPaneOpen ? "左ペインを閉じる" : "左ペインを開く"}
+            aria-pressed={leftPaneOpen}
+          >
+            ◧
+          </button>
+          <button
+            className={
+              rightPaneOpen ? "pane-toggle active right" : "pane-toggle right"
+            }
+            onClick={onToggleRightPane}
+            title={rightPaneOpen ? "右ペインを閉じる" : "右ペインを開く"}
+            aria-label={rightPaneOpen ? "右ペインを閉じる" : "右ペインを開く"}
+            aria-pressed={rightPaneOpen}
+          >
+            ◨
+          </button>
+        </div>
       </div>
     </header>
   );
@@ -393,7 +430,7 @@ function LeftSidebar({
       <div className="side-content">
         {active === "Source" && (
           <>
-            <div className="section-label">OPEN EDITOR</div>
+            <div className="section-label">開いている文書</div>
             <button className="source-file selected">
               <span>MD</span>
               <div>
@@ -603,47 +640,92 @@ function PdfPreviewPane({
   preview,
   status,
   error,
+  active,
+  fitOnFirstRender,
+  zoom,
+  onZoom,
   initialScroll,
   onScroll,
 }: {
   preview?: PreviewHtml;
   status: string;
   error?: string;
+  active: boolean;
+  fitOnFirstRender: boolean;
+  zoom: number;
+  onZoom: (zoom: number) => void;
   initialScroll: { x: number; y: number };
   onScroll: (position: { x: number; y: number }) => void;
 }) {
-  const [zoom, setZoom] = useState(100);
   const [pageCount, setPageCount] = useState(0);
-  const [srcDoc, setSrcDoc] = useState("");
+  const [frameDocuments, setFrameDocuments] = useState<[string, string]>([
+    "",
+    "",
+  ]);
+  const [activeFrame, setActiveFrame] = useState<0 | 1>(0);
   const [paginating, setPaginating] = useState(false);
   const [previewError, setPreviewError] = useState<string>();
-  const frameRef = useRef<HTMLIFrameElement>(null);
-  const needsInitialFit = useRef(true);
+  const frameRefs = useRef<
+    [HTMLIFrameElement | null, HTMLIFrameElement | null]
+  >([null, null]);
+  const activeFrameRef = useRef<0 | 1>(0);
+  const pendingFrameRef = useRef<0 | 1>();
+  const needsInitialFit = useRef(fitOnFirstRender);
+  useEffect(
+    () => () => {
+      const frameWindow =
+        frameRefs.current[activeFrameRef.current]?.contentWindow;
+      if (frameWindow)
+        onScroll({ x: frameWindow.scrollX, y: frameWindow.scrollY });
+    },
+    [onScroll],
+  );
+  useEffect(() => {
+    if (!frameDocuments[0] && !frameDocuments[1])
+      needsInitialFit.current = fitOnFirstRender;
+  }, [fitOnFirstRender]);
   useEffect(() => {
     if (!preview) return;
-    const frameWindow = frameRef.current?.contentWindow;
+    const currentFrame = activeFrameRef.current;
+    const targetFrame: 0 | 1 = frameDocuments[currentFrame]
+      ? currentFrame === 0
+        ? 1
+        : 0
+      : currentFrame;
+    const frameWindow = frameRefs.current[currentFrame]?.contentWindow;
     setPaginating(true);
     setPreviewError(undefined);
-    setSrcDoc(
-      previewDocument(
-        preview,
-        frameWindow?.scrollX ?? initialScroll.x,
-        frameWindow?.scrollY ?? initialScroll.y,
-        zoom,
-        needsInitialFit.current,
-      ),
+    pendingFrameRef.current = targetFrame;
+    const nextDocument = previewDocument(
+      preview,
+      frameWindow?.scrollX ?? initialScroll.x,
+      frameWindow?.scrollY ?? initialScroll.y,
+      zoom,
+      needsInitialFit.current,
     );
+    setFrameDocuments((current) => {
+      const next: [string, string] = [...current];
+      next[targetFrame] = nextDocument;
+      return next;
+    });
   }, [preview]);
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.source !== frameRef.current?.contentWindow) return;
+      const frameIndex = frameRefs.current.findIndex(
+        (frame) => event.source === frame?.contentWindow,
+      );
+      if (frameIndex < 0) return;
       if (event.data?.type === "inkframe:paged") {
+        if (frameIndex !== pendingFrameRef.current) return;
+        const nextFrame = frameIndex as 0 | 1;
+        activeFrameRef.current = nextFrame;
+        setActiveFrame(nextFrame);
         needsInitialFit.current = false;
         setPageCount(Number(event.data.pageCount) || 0);
         setPaginating(false);
       }
-      if (event.data?.type === "inkframe:zoom")
-        setZoom(Number(event.data.zoom) || 100);
+      if (event.data?.type === "inkframe:zoom" && active)
+        onZoom(Number(event.data.zoom) || 100);
       if (event.data?.type === "inkframe:scroll")
         onScroll({
           x: Number(event.data.scrollX) || 0,
@@ -656,19 +738,39 @@ function PdfPreviewPane({
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [onScroll]);
+  }, [active, onScroll, onZoom]);
+  useEffect(() => {
+    const handleCommand = (event: Event) => {
+      const command = (event as CustomEvent<string>).detail;
+      if (!active) return;
+      if (command === "zoom-in") changeZoom(zoom + 10);
+      if (command === "zoom-out") changeZoom(zoom - 10);
+      if (command === "zoom-actual") changeZoom(100);
+      if (command === "zoom-fit") fitWidth();
+    };
+    window.addEventListener("inkframe:preview-command", handleCommand);
+    return () =>
+      window.removeEventListener("inkframe:preview-command", handleCommand);
+  }, [active, zoom]);
+  useEffect(() => {
+    if (!active) return;
+    changeZoom(zoom);
+  }, [active]);
   const changeZoom = (next: number) =>
-    frameRef.current?.contentWindow?.postMessage(
+    frameRefs.current[activeFrameRef.current]?.contentWindow?.postMessage(
       { type: "inkframe:set-zoom", zoom: next },
       "*",
     );
   const fitWidth = () =>
-    frameRef.current?.contentWindow?.postMessage(
+    frameRefs.current[activeFrameRef.current]?.contentWindow?.postMessage(
       { type: "inkframe:fit-width" },
       "*",
     );
   return (
-    <main className="preview-pane">
+    <main
+      className={`preview-pane ${active ? "active-document" : "inactive-document"}`}
+      aria-hidden={!active}
+    >
       <div className="preview-toolbar">
         <span>ページプレビュー</span>
         <span>{pageCount ? `${pageCount}ページ · ${status}` : status}</span>
@@ -679,18 +781,25 @@ function PdfPreviewPane({
             <i /> レイアウトを組み立てています
           </div>
         )}
-        {error || previewError ? (
+        {(error || previewError) && !frameDocuments[activeFrame] ? (
           <div className="preview-error">
             <strong>プレビューを更新できませんでした</strong>
             <span>{error || previewError}</span>
           </div>
         ) : (
-          <iframe
-            ref={frameRef}
-            className="html-preview"
-            srcDoc={srcDoc}
-            title="ページプレビュー"
-          />
+          frameDocuments.map((srcDoc, index) =>
+            srcDoc ? (
+              <iframe
+                ref={(frame) => {
+                  frameRefs.current[index as 0 | 1] = frame;
+                }}
+                className={`html-preview ${index === activeFrame ? "active" : "inactive"}`}
+                srcDoc={srcDoc}
+                title="ページプレビュー"
+                key={index}
+              />
+            ) : null,
+          )
         )}
       </div>
       <div className="zoom-controls">
@@ -942,7 +1051,8 @@ function RightInspector({
                       onChange={(event) =>
                         update({
                           pageNumberFormat: event.target.value as
-                            "current" | "current-total",
+                            | "current"
+                            | "current-total",
                         })
                       }
                     >
@@ -1195,10 +1305,23 @@ function SettingsDialog({
   onSave: (options: ConvertOptions) => void;
 }) {
   const [draft, setDraft] = useState<ConvertOptions>(initialOptions);
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onCancel]);
   const update = (next: Partial<ConvertOptions>) =>
     setDraft((current) => ({ ...current, ...next }));
   return (
-    <div className="settings-overlay" role="presentation">
+    <div
+      className="settings-overlay"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
       <section
         className="settings-dialog"
         role="dialog"
@@ -1349,7 +1472,8 @@ function SettingsDialog({
                       onChange={(event) =>
                         update({
                           pageNumberFormat: event.target.value as
-                            "current" | "current-total",
+                            | "current"
+                            | "current-total",
                         })
                       }
                     >
@@ -1427,10 +1551,14 @@ function SettingsDialog({
 }
 
 export function App() {
+  const initialPreviewZoom = useRef(savedPreviewZoom());
   const [document, setDocument] = useState<DocumentFile>();
   const [documents, setDocuments] = useState<DocumentFile[]>([]);
   const [showingHome, setShowingHome] = useState(false);
-  const [preview, setPreview] = useState<PreviewHtml>();
+  const [previews, setPreviews] = useState<Record<string, PreviewHtml>>({});
+  const [previewAutoFit, setPreviewAutoFit] = useState<Record<string, boolean>>(
+    {},
+  );
   const [status, setStatus] = useState("待機中");
   const [watchStatus, setWatchStatus] = useState("未監視");
   const [error, setError] = useState<string>();
@@ -1444,7 +1572,19 @@ export function App() {
   const [tab, setTab] = useState<InspectorTab>("Style");
   const [result, setResult] = useState<ExportResult>();
   const [showingSettings, setShowingSettings] = useState(false);
+  const [leftPaneOpen, setLeftPaneOpen] = useState(
+    () => window.innerWidth >= 1180,
+  );
+  const [rightPaneOpen, setRightPaneOpen] = useState(
+    () => window.innerWidth >= 1180,
+  );
+  const [previewZoom, setPreviewZoom] = useState(
+    initialPreviewZoom.current ?? 100,
+  );
   const renderId = useRef(0);
+  const canAutoFitNextPreview = useRef(
+    initialPreviewZoom.current === undefined,
+  );
   const previewScroll = useRef(new Map<string, { x: number; y: number }>());
   const load = useCallback(async (next: DocumentFile) => {
     setDocuments((current) =>
@@ -1474,7 +1614,16 @@ export function App() {
         window.mdpdf.inspect(document.content),
       ]);
       if (id === renderId.current) {
-        setPreview(nextPreview);
+        const autoFit = canAutoFitNextPreview.current;
+        canAutoFitNextPreview.current = false;
+        setPreviewAutoFit((current) => ({
+          ...current,
+          [document.path]: autoFit,
+        }));
+        setPreviews((current) => ({
+          ...current,
+          [document.path]: nextPreview,
+        }));
         setInspection(nextInspection);
         setStatus("更新済み");
       }
@@ -1530,6 +1679,69 @@ export function App() {
   useEffect(
     () => window.mdpdf.onOpenSettings(() => setShowingSettings(true)),
     [],
+  );
+  useEffect(() => {
+    void window.mdpdf.updateMenuDocumentOptions({
+      toc: options.toc,
+      cover: options.cover,
+      pageNumber: options.pageNumber,
+    });
+  }, [options.toc, options.cover, options.pageNumber]);
+  useEffect(() => {
+    const closePanesInNarrowWindow = () => {
+      if (window.innerWidth >= 1180) return;
+      setLeftPaneOpen(false);
+      setRightPaneOpen(false);
+    };
+    window.addEventListener("resize", closePanesInNarrowWindow);
+    closePanesInNarrowWindow();
+    return () => window.removeEventListener("resize", closePanesInNarrowWindow);
+  }, []);
+  useEffect(
+    () =>
+      window.mdpdf.onMenuAction((action, value) => {
+        if (action === "open") void open();
+        if (action === "new-tab") setShowingHome(true);
+        if (action === "open-recent" && typeof value === "string")
+          void window.mdpdf.read(value).then(load);
+        if (action === "export") void exportPdf();
+        if (action === "open-editor" && document) void openLine(1);
+        if (action === "reveal" && document)
+          void window.mdpdf.reveal(document.path);
+        if (action.startsWith("zoom-"))
+          window.dispatchEvent(
+            new CustomEvent("inkframe:preview-command", { detail: action }),
+          );
+        if (action === "toggle-option" && value && typeof value === "object") {
+          const option = value as { key?: string; value?: boolean };
+          if (["toc", "cover", "pageNumber"].includes(option.key ?? ""))
+            setOptions((current) => ({
+              ...current,
+              [option.key!]: Boolean(option.value),
+            }));
+        }
+        if (action === "document-settings") setShowingSettings(true);
+        if (action === "next-tab" || action === "previous-tab") {
+          const index = documents.findIndex(
+            (item) => item.path === document?.path,
+          );
+          const direction = action === "next-tab" ? 1 : -1;
+          const next = documents.at((index + direction) % documents.length);
+          if (next) void selectTab(next.path);
+        }
+        if (action === "show-tabs") setShowingHome(true);
+        if (action === "select-theme" && typeof value === "string")
+          setOptions((current) => ({ ...current, theme: value }));
+        if (action === "theme-create") void createTheme();
+        if (action === "theme-import") void importTheme();
+        if (action === "theme-manage") setShowingHome(true);
+        const activeTheme = themes.find((theme) => theme.id === options.theme);
+        if (action === "theme-edit" && activeTheme?.cssPath)
+          void window.mdpdf.editTheme(activeTheme.cssPath);
+        if (action === "theme-export" && activeTheme?.cssPath)
+          void window.mdpdf.exportTheme(activeTheme.cssPath);
+      }),
+    [document, documents, load, open, options, themes],
   );
   useEffect(() => {
     const timer = window.setTimeout(render, 180);
@@ -1604,7 +1816,6 @@ export function App() {
     if (existing) {
       setDocument(existing);
       setShowingHome(false);
-      setPreview(undefined);
       setInspection(EMPTY_INSPECTION);
       setError(undefined);
       setWatchStatus(
@@ -1619,7 +1830,6 @@ export function App() {
     if (document?.path !== path) return;
     const next = remaining[Math.min(index, remaining.length - 1)];
     setDocument(next);
-    setPreview(undefined);
     setError(undefined);
     if (next)
       setWatchStatus(
@@ -1665,6 +1875,10 @@ export function App() {
     },
     [],
   );
+  const updatePreviewZoom = useCallback((zoom: number) => {
+    setPreviewZoom(zoom);
+    window.localStorage.setItem(PREVIEW_ZOOM_STORAGE_KEY, String(zoom));
+  }, []);
   const home = (showAddButton = true) => (
     <Home
       history={history}
@@ -1722,6 +1936,10 @@ export function App() {
       onReveal={() => window.mdpdf.reveal(document.path)}
       onRefresh={render}
       onExport={exportPdf}
+      leftPaneOpen={leftPaneOpen}
+      rightPaneOpen={rightPaneOpen}
+      onToggleLeftPane={() => setLeftPaneOpen((open) => !open)}
+      onToggleRightPane={() => setRightPaneOpen((open) => !open)}
     />
   );
   if (showingHome)
@@ -1735,55 +1953,69 @@ export function App() {
   return (
     <div className="app-shell" onDragOver={dragOverTabs} onDrop={dropOnTabs}>
       {topBar}
-      <div className="workspace">
-        <LeftSidebar
-          document={document}
-          inspection={inspection}
-          history={history}
-          active={side}
-          onActive={setSide}
-          onOpenLine={openLine}
-          onHistory={(path) => window.mdpdf.read(path).then(load)}
-        />
-        <PdfPreviewPane
-          key={document.path}
-          preview={preview}
-          status={status}
-          error={error}
-          initialScroll={
-            previewScroll.current.get(document.path) ?? { x: 0, y: 0 }
-          }
-          onScroll={(position) =>
-            rememberPreviewScroll(document.path, position)
-          }
-        />
-        <RightInspector
-          tab={tab}
-          onTab={setTab}
-          options={options}
-          onOptions={setOptions}
-          themes={themes}
-          fonts={fonts}
-          settings={settings}
-          result={result}
-          onExport={exportPdf}
-          onOpenResult={() =>
-            result && window.mdpdf.openPath(result.outputPath)
-          }
-          onRevealResult={() =>
-            result && window.mdpdf.reveal(result.outputPath)
-          }
-          onCreateTheme={createTheme}
-          onImportTheme={importTheme}
-          onEditTheme={(theme) =>
-            theme.cssPath && window.mdpdf.editTheme(theme.cssPath)
-          }
-          onExportTheme={(theme) =>
-            theme.cssPath && window.mdpdf.exportTheme(theme.cssPath)
-          }
-          onDeleteTheme={deleteTheme}
-          onDefaultTheme={setDefaultTheme}
-        />
+      <div
+        className={`workspace ${leftPaneOpen ? "left-pane-open" : ""} ${rightPaneOpen ? "right-pane-open" : ""}`}
+      >
+        {leftPaneOpen && (
+          <LeftSidebar
+            document={document}
+            inspection={inspection}
+            history={history}
+            active={side}
+            onActive={setSide}
+            onOpenLine={openLine}
+            onHistory={(path) => window.mdpdf.read(path).then(load)}
+          />
+        )}
+        <div className="preview-stack">
+          {documents.map((openDocument) => (
+            <PdfPreviewPane
+              key={openDocument.path}
+              preview={previews[openDocument.path]}
+              status={openDocument.path === document.path ? status : "待機中"}
+              error={openDocument.path === document.path ? error : undefined}
+              active={openDocument.path === document.path}
+              fitOnFirstRender={Boolean(previewAutoFit[openDocument.path])}
+              zoom={previewZoom}
+              onZoom={updatePreviewZoom}
+              initialScroll={
+                previewScroll.current.get(openDocument.path) ?? { x: 0, y: 0 }
+              }
+              onScroll={(position) =>
+                rememberPreviewScroll(openDocument.path, position)
+              }
+            />
+          ))}
+        </div>
+        {rightPaneOpen && (
+          <RightInspector
+            tab={tab}
+            onTab={setTab}
+            options={options}
+            onOptions={setOptions}
+            themes={themes}
+            fonts={fonts}
+            settings={settings}
+            result={result}
+            onExport={exportPdf}
+            onOpenResult={() =>
+              result && window.mdpdf.openPath(result.outputPath)
+            }
+            onRevealResult={() =>
+              result && window.mdpdf.reveal(result.outputPath)
+            }
+            onCreateTheme={createTheme}
+            onImportTheme={importTheme}
+            onEditTheme={(theme) =>
+              theme.cssPath && window.mdpdf.editTheme(theme.cssPath)
+            }
+            onExportTheme={(theme) =>
+              theme.cssPath && window.mdpdf.exportTheme(theme.cssPath)
+            }
+            onDeleteTheme={deleteTheme}
+            onDefaultTheme={setDefaultTheme}
+          />
+        )}
       </div>
       {settingsDialog}
     </div>
