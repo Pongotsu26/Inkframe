@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { watch as watchFile } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
 import { Command } from "commander";
 import { listFonts } from "./fonts.js";
@@ -13,6 +14,10 @@ import {
   type ConvertOptions,
 } from "./renderer.js";
 import type { Paper } from "./types.js";
+
+const packageJson = createRequire(import.meta.url)("../package.json") as {
+  version: string;
+};
 
 interface CliOptions extends ConvertOptions {
   bodyFont?: string;
@@ -49,7 +54,7 @@ program
   .name("inkframe")
   .enablePositionalOptions()
   .description("Markdownを美しいPDFに仕上げるローカル組版CLI")
-  .version("0.2.0")
+  .version(packageJson.version)
   .argument("[input]", "変換する Markdown ファイル")
   .option("-o, --output <path>", "出力 PDF のパス")
   .option("--theme <name>", "テーマ名（README のテーマ一覧を参照）")
