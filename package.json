@@ -3,6 +3,8 @@
   "productName": "Inkframe",
   "version": "2026.7.1",
   "description": "A local-first Markdown typesetting studio for polished PDFs",
+  "author": "Pongotsu26",
+  "license": "MIT",
   "packageManager": "pnpm@11.9.0",
   "type": "module",
   "main": "./dist/desktop/main.js",
@@ -13,7 +15,10 @@
     "dist",
     "themes",
     "desktop",
-    "assets"
+    "assets",
+    "LICENSE",
+    "BRAND_ASSETS.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "build": {
     "appId": "dev.inkframe.app",
@@ -21,6 +26,28 @@
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      {
+        "from": "LICENSE",
+        "to": "legal/LICENSE"
+      },
+      {
+        "from": "BRAND_ASSETS.md",
+        "to": "legal/BRAND_ASSETS.md"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "legal/THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "node_modules/electron/dist/LICENSE",
+        "to": "legal/ELECTRON_LICENSE"
+      },
+      {
+        "from": "node_modules/electron/dist/LICENSES.chromium.html",
+        "to": "legal/LICENSES.chromium.html"
+      }
+    ],
     "mac": {
       "icon": "assets/Inkframe.icon"
     },
@@ -39,8 +66,10 @@
     "renderer:build": "vite build",
     "renderer:dev": "vite",
     "icon:build": "magick -background none assets/icon.svg -alpha on -depth 8 -define png:color-type=6 assets/icon.png && png2icons assets/icon.png assets/icon -icns -bc",
+    "legal:generate": "node scripts/generate-third-party-notices.mjs",
+    "prepackage:mac": "pnpm legal:generate",
     "package:mac": "node scripts/package-mac.mjs",
-    "theme:extract": "node scripts/vscode-theme-to-css.mjs design/vscode-dark.generated.json src/renderer/src/styles/vscode-theme.css",
+    "theme:extract": "node scripts/theme-tokens-to-css.mjs design/inkframe-dark.tokens.json src/renderer/src/styles/inkframe-theme.css",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "desktop": "pnpm build && electron .",

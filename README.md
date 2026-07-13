@@ -131,3 +131,9 @@ Chromium が実際に使用したローカルフォントは PDF に埋め込ま
 変換はローカルで完結し、Markdown を外部へ送信しません。外部 URL のリソース読み込みは既定で遮断し、必要な場合だけ `--allow-external-resources` を指定します。Mermaid は Chromium 内で `securityLevel: strict` を指定して描画します。HTML 混在ではスクリプト・埋め込み・イベント属性を除去しますが、信頼できない Markdown は変換しないでください。
 
 Phase 1〜3（CLI MVP、実用 CLI、Desktop 版）を実装しています。Editor 連携と Cloud 機能は次フェーズの範囲です。
+
+## ライセンス
+
+Inkframeのソースコードは[MIT License](./LICENSE)で公開しています。依存ソフトウェアの著作権とライセンスは[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)を参照してください。
+
+Inkframeの名称、ロゴ、アプリケーションアイコンはMIT Licenseの対象外です。未変更のInkframeビルドを再配布する場合を除き、派生プロダクトでは別の名称と独自のロゴ・アイコンを使用してください。詳細は[BRAND_ASSETS.md](./BRAND_ASSETS.md)を参照してください。

@@ -871,6 +871,25 @@ function sendMenuAction(action: string, value?: unknown): void {
   mainWindow?.webContents.send("menu:action", action, value);
 }
 
+async function openLegalDocument(name: string): Promise<void> {
+  const projectRoot = resolve(import.meta.dirname, "../../");
+  const developmentDocuments: Record<string, string> = {
+    ELECTRON_LICENSE: join(
+      projectRoot,
+      "node_modules/electron/dist/LICENSE",
+    ),
+    "LICENSES.chromium.html": join(
+      projectRoot,
+      "node_modules/electron/dist/LICENSES.chromium.html",
+    ),
+  };
+  const documentPath = app.isPackaged
+    ? join(process.resourcesPath, "legal", name)
+    : (developmentDocuments[name] ?? join(projectRoot, name));
+  const error = await shell.openPath(documentPath);
+  if (error) dialog.showErrorBox("Inkframe", error);
+}
+
 async function installApplicationMenu(): Promise<void> {
   const recent = await history();
   const themes = await listThemes(customThemesPath());
@@ -1096,6 +1115,19 @@ async function installApplicationMenu(): Promise<void> {
           label: "Markdown 記法リファレンス",
           click: () => shell.openExternal("https://commonmark.org/help/"),
         },
+        { type: "separator" },
+        {
+          label: "オープンソースライセンス…",
+          click: () => void openLegalDocument("THIRD_PARTY_NOTICES.md"),
+        },
+        {
+          label: "Electron ライセンス…",
+          click: () => void openLegalDocument("ELECTRON_LICENSE"),
+        },
+        {
+          label: "Chromium ライセンス…",
+          click: () => void openLegalDocument("LICENSES.chromium.html"),
+        },
       ],
     },
   ];
@@ -1147,6 +1179,9 @@ async function installApplicationMenu(): Promise<void> {
       ["ヘルプ", "Help"],
       ["Inkframe ヘルプ", "Inkframe Help"],
       ["Markdown 記法リファレンス", "Markdown Reference"],
+      ["オープンソースライセンス…", "Open Source Licenses…"],
+      ["Electron ライセンス…", "Electron License…"],
+      ["Chromium ライセンス…", "Chromium Licenses…"],
     ]);
     const translate = (items: MenuItemConstructorOptions[]): void => {
       for (const item of items) {
