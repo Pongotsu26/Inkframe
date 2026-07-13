@@ -15,6 +15,7 @@ import {
   copyFile,
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -66,6 +67,170 @@ interface EditorInfo {
   id: string;
   name: string;
   icon?: string;
+}
+interface EditorCandidate extends EditorInfo {
+  applicationNames: string[];
+  relativeExecutable?: string;
+  arguments: (path: string, line: number, column: number) => string[];
+}
+const EDITOR_CANDIDATES: EditorCandidate[] = [
+  {
+    id: "vscode",
+    name: "Visual Studio Code",
+    applicationNames: ["Visual Studio Code.app"],
+    relativeExecutable: "Contents/Resources/app/bin/code",
+    arguments: (path, line, column) => ["-g", `${path}:${line}:${column}`],
+  },
+  {
+    id: "cursor",
+    name: "Cursor",
+    applicationNames: ["Cursor.app"],
+    relativeExecutable: "Contents/Resources/app/bin/cursor",
+    arguments: (path, line, column) => ["-g", `${path}:${line}:${column}`],
+  },
+  {
+    id: "windsurf",
+    name: "Windsurf",
+    applicationNames: ["Windsurf.app"],
+    relativeExecutable: "Contents/Resources/app/bin/windsurf",
+    arguments: (path, line, column) => ["-g", `${path}:${line}:${column}`],
+  },
+  {
+    id: "vscodium",
+    name: "VSCodium",
+    applicationNames: ["VSCodium.app"],
+    relativeExecutable: "Contents/Resources/app/bin/codium",
+    arguments: (path, line, column) => ["-g", `${path}:${line}:${column}`],
+  },
+  {
+    id: "zed",
+    name: "Zed",
+    applicationNames: ["Zed.app"],
+    relativeExecutable: "Contents/MacOS/zed",
+    arguments: (path, line, column) => [`${path}:${line}:${column}`],
+  },
+  {
+    id: "sublime",
+    name: "Sublime Text",
+    applicationNames: ["Sublime Text.app"],
+    relativeExecutable: "Contents/SharedSupport/bin/subl",
+    arguments: (path, line, column) => [`${path}:${line}:${column}`],
+  },
+  {
+    id: "nova",
+    name: "Nova",
+    applicationNames: ["Nova.app"],
+    relativeExecutable: "Contents/MacOS/Nova",
+    arguments: (path, line) => [`nova://open?path=${encodeURIComponent(path)}&line=${line}`],
+  },
+  {
+    id: "textmate",
+    name: "TextMate",
+    applicationNames: ["TextMate.app"],
+    relativeExecutable: "Contents/Resources/mate",
+    arguments: (path, line) => ["-l", String(line), path],
+  },
+  {
+    id: "bbedit",
+    name: "BBEdit",
+    applicationNames: ["BBEdit.app"],
+    relativeExecutable: "Contents/Helpers/bbedit_tool",
+    arguments: (path, line) => [`+${line}`, path],
+  },
+  {
+    id: "pycharm",
+    name: "PyCharm",
+    applicationNames: ["PyCharm.app", "PyCharm CE.app"],
+    relativeExecutable: "Contents/MacOS/pycharm",
+    arguments: (path, line) => ["--line", String(line), path],
+  },
+  {
+    id: "webstorm",
+    name: "WebStorm",
+    applicationNames: ["WebStorm.app"],
+    relativeExecutable: "Contents/MacOS/webstorm",
+    arguments: (path, line) => ["--line", String(line), path],
+  },
+  {
+    id: "intellij",
+    name: "IntelliJ IDEA",
+    applicationNames: ["IntelliJ IDEA.app", "IntelliJ IDEA CE.app"],
+    relativeExecutable: "Contents/MacOS/idea",
+    arguments: (path, line) => ["--line", String(line), path],
+  },
+  {
+    id: "fleet",
+    name: "Fleet",
+    applicationNames: ["Fleet.app"],
+    relativeExecutable: "Contents/MacOS/Fleet",
+    arguments: (path, line) => ["--line", String(line), path],
+  },
+];
+
+function editorApplicationPaths(candidate: EditorCandidate): string[] {
+  return candidate.applicationNames.flatMap((name) => [
+    join("/Applications", name),
+    join(homedir(), "Applications", name),
+    join(homedir(), "Applications", "JetBrains Toolbox", name),
+  ]);
+}
+
+async function installedEditor(
+  candidate: EditorCandidate,
+): Promise<{ applicationPath: string; executablePath: string } | undefined> {
+  for (const applicationPath of editorApplicationPaths(candidate)) {
+    try {
+      await stat(applicationPath);
+      return {
+        applicationPath,
+        executablePath: candidate.relativeExecutable
+          ? join(applicationPath, candidate.relativeExecutable)
+          : applicationPath,
+      };
+    } catch {}
+  }
+  return undefined;
+}
+
+async function applicationIcon(applicationPath: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync("plutil", [
+      "-extract",
+      "CFBundleIconFile",
+      "raw",
+      "-o",
+      "-",
+      join(applicationPath, "Contents", "Info.plist"),
+    ]);
+    const iconName = stdout.trim();
+    const iconPath = join(
+      applicationPath,
+      "Contents",
+      "Resources",
+      iconName.endsWith(".icns") ? iconName : `${iconName}.icns`,
+    );
+    const pngPath = join(
+      app.getPath("temp"),
+      `inkframe-editor-icon-${randomUUID()}.png`,
+    );
+    try {
+      await execFileAsync("sips", [
+        "-s",
+        "format",
+        "png",
+        iconPath,
+        "--out",
+        pngPath,
+      ]);
+      const icon = nativeImage.createFromPath(pngPath);
+      if (!icon.isEmpty())
+        return icon.resize({ width: 32, height: 32 }).toDataURL();
+    } finally {
+      await rm(pngPath, { force: true });
+    }
+  } catch {}
+  const fallback = await app.getFileIcon(applicationPath, { size: "normal" });
+  return fallback.isEmpty() ? undefined : fallback.toDataURL();
 }
 interface WindowState {
   bounds?: { width: number; height: number; x?: number; y?: number };
@@ -278,30 +443,17 @@ async function openEditor(
   editor = "system",
 ): Promise<{ ok: boolean; method?: string; message?: string }> {
   const target = `${path}:${line}:${column}`;
-  const commands: Record<string, { command: string; args: string[] }> = {
-    vscode: {
-      command:
-        "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
-      args: ["-g", target],
-    },
-    cursor: {
-      command: "/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
-      args: ["-g", target],
-    },
-    zed: {
-      command: "/Applications/Zed.app/Contents/MacOS/zed",
-      args: [target],
-    },
-    sublime: {
-      command:
-        "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl",
-      args: [target],
-    },
-  };
   const configured = process.env.INKFRAME_EDITOR || process.env.MDPDF_EDITOR;
+  const candidate = EDITOR_CANDIDATES.find((item) => item.id === editor);
+  const installed = candidate ? await installedEditor(candidate) : undefined;
   const selected = configured
     ? { command: configured, args: ["-g", target] }
-    : commands[editor];
+    : candidate && installed
+      ? {
+          command: installed.executablePath,
+          args: candidate.arguments(path, line, column),
+        }
+      : undefined;
   if (selected) {
     try {
       await execFileAsync(selected.command, selected.args);
@@ -317,33 +469,17 @@ async function openEditor(
     : { ok: true, method: "system" };
 }
 async function editors(): Promise<EditorInfo[]> {
-  const candidates = [
-    {
-      id: "vscode",
-      name: "Visual Studio Code",
-      path: "/Applications/Visual Studio Code.app",
-    },
-    { id: "cursor", name: "Cursor", path: "/Applications/Cursor.app" },
-    { id: "zed", name: "Zed", path: "/Applications/Zed.app" },
-    {
-      id: "sublime",
-      name: "Sublime Text",
-      path: "/Applications/Sublime Text.app",
-    },
-  ];
   const available: EditorInfo[] = [
     { id: "system", name: "System default" },
   ];
-  for (const candidate of candidates) {
-    try {
-      await stat(candidate.path);
-      const icon = await app.getFileIcon(candidate.path, { size: "small" });
-      available.push({
-        id: candidate.id,
-        name: candidate.name,
-        icon: icon.isEmpty() ? undefined : icon.toDataURL(),
-      });
-    } catch {}
+  for (const candidate of EDITOR_CANDIDATES) {
+    const installed = await installedEditor(candidate);
+    if (!installed) continue;
+    available.push({
+      id: candidate.id,
+      name: candidate.name,
+      icon: await applicationIcon(installed.applicationPath),
+    });
   }
   return available;
 }

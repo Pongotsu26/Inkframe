@@ -583,6 +583,20 @@ function LeftSidebar({
   language: "en" | "ja";
   onHistory: (path: string) => void;
 }) {
+  const [commandPressed, setCommandPressed] = useState(false);
+  useEffect(() => {
+    const updateModifier = (event: KeyboardEvent) =>
+      setCommandPressed(event.metaKey);
+    const clearModifier = () => setCommandPressed(false);
+    window.addEventListener("keydown", updateModifier);
+    window.addEventListener("keyup", updateModifier);
+    window.addEventListener("blur", clearModifier);
+    return () => {
+      window.removeEventListener("keydown", updateModifier);
+      window.removeEventListener("keyup", updateModifier);
+      window.removeEventListener("blur", clearModifier);
+    };
+  }, []);
   const sections: SideSection[] = [
     "Source",
     "Outline",
@@ -655,19 +669,34 @@ function LeftSidebar({
                     return previousBase === base;
                   }).length;
                 const id = duplicateIndex ? `${base}-${duplicateIndex}` : base;
+                const itemKey = `${item.line}-${item.text}`;
                 return (
                 <button
-                  className="tree-item"
+                  className={`tree-item ${commandPressed ? "open-in-editor" : ""}`}
                   style={{ paddingLeft: 12 + (item.level - 1) * 14 }}
                   onClick={(event) =>
                     event.metaKey
                       ? onOpenLine(item.line)
                       : onPreviewHeading(id)
                   }
-                  key={`${item.line}-${item.text}`}
+                  title={
+                    commandPressed
+                      ? language === "ja"
+                        ? "エディターで開く"
+                        : "Open in Editor"
+                      : language === "ja"
+                        ? "プレビューへ移動"
+                        : "Jump in Preview"
+                  }
+                  key={itemKey}
                 >
                   <span className="hash">H{item.level}</span>
-                  {item.text}
+                  <span className="tree-item-text">{item.text}</span>
+                  {commandPressed && (
+                    <span className="editor-action-hint" aria-hidden="true">
+                      {language === "ja" ? "エディター ↗" : "Editor ↗"}
+                    </span>
+                  )}
                 </button>
                 );
               })
@@ -1607,6 +1636,7 @@ function SettingsDialog({
     initialSettings.language ?? "en",
   );
   const [editor, setEditor] = useState(initialSettings.editor ?? "system");
+  const selectedEditor = editors.find((item) => item.id === editor);
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCancel();
@@ -1662,16 +1692,25 @@ function SettingsDialog({
               </label>
               <label>
                 {language === "ja" ? "エディター" : "Editor"}
-                <select
-                  value={editor}
-                  onChange={(event) => setEditor(event.target.value)}
-                >
-                  {editors.map((item) => (
-                    <option value={item.id} key={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
+                <span className="editor-select-row">
+                  {selectedEditor?.icon && (
+                    <img
+                      className="editor-settings-icon"
+                      src={selectedEditor.icon}
+                      alt=""
+                    />
+                  )}
+                  <select
+                    value={editor}
+                    onChange={(event) => setEditor(event.target.value)}
+                  >
+                    {editors.map((item) => (
+                      <option value={item.id} key={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </span>
               </label>
             </div>
           </SettingCard>

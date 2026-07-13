@@ -55,6 +55,10 @@ button:disabled {
   background: transparent;
 }
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 30px;
   padding: 5px 11px;
   border: 1px solid var(--input-border);
@@ -311,10 +315,24 @@ input[type="range"] {
   gap: 7px;
 }
 .editor-icon {
-  width: 16px;
-  height: 16px;
-  margin-right: 6px;
-  vertical-align: -3px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.editor-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.editor-select-row select {
+  flex: 1;
+  min-width: 0;
+}
+.editor-settings-icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 5px;
 }
 .section-hint {
   padding: 0 12px 8px;
@@ -593,17 +611,40 @@ input[type="range"] {
   border-bottom: 1px solid var(--border-subtle);
 }
 .tree-item {
+  display: flex;
+  align-items: center;
   min-height: 29px;
   padding-right: 8px;
+  overflow: hidden;
+}
+.tree-item .hash {
+  flex: none;
+  width: 24px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+.tree-item-text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tree-item .hash {
-  display: inline-block;
-  width: 24px;
-  color: var(--text-muted);
-  font-size: 9px;
+.editor-action-hint {
+  visibility: hidden;
+  margin-left: auto;
+  padding-left: 6px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tree-item.open-in-editor:hover {
+  background: var(--bg-selected);
+  cursor: alias;
+}
+.tree-item.open-in-editor:hover .editor-action-hint {
+  visibility: visible;
 }
 .issue {
   display: flex;
