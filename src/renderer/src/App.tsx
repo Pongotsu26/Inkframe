@@ -21,6 +21,8 @@ const EMPTY_INSPECTION: Inspection = { outline: [], issues: [], assets: [] };
 const DEFAULT_CODE_THEME = "github-dark";
 const PREVIEW_ZOOM_STORAGE_KEY = "inkframe:preview-zoom";
 const MAX_PREVIEW_ZOOM = 500;
+const PREVIEW_RENDER_TIMEOUT_MS = 30_000;
+const PAGINATION_TIMEOUT_MS = 15_000;
 const CODE_THEMES = [
   { id: "github-dark", name: "GitHub Dark" },
   { id: "light-plus", name: "Light Plus" },
@@ -63,6 +65,9 @@ const ENGLISH_UI = new Map<string, string>([
   ["ページプレビュー", "Page Preview"],
   ["レイアウトを組み立てています", "Building layout"],
   ["プレビューを更新できませんでした", "Could not refresh preview"],
+  ["ページの組版がタイムアウトしました", "Page layout timed out"],
+  ["プレビュー生成がタイムアウトしました", "Preview generation timed out"],
+  ["プレビューを読み込めませんでした", "Could not load preview"],
   ["幅に合わせる", "Fit Width"],
   ["ドキュメントテーマ", "Document Theme"],
   ["PDFの組版と表現を選択", "Choose PDF layout and appearance"],
@@ -925,9 +930,11 @@ function PdfPreviewPane({
   >([null, null]);
   const activeFrameRef = useRef<0 | 1>(0);
   const pendingFrameRef = useRef<0 | 1>();
+  const paginationTimeoutRef = useRef<number>();
   const needsInitialFit = useRef(fitOnFirstRender);
   useEffect(
     () => () => {
+      window.clearTimeout(paginationTimeoutRef.current);
       const frameWindow =
         frameRefs.current[activeFrameRef.current]?.contentWindow;
       if (frameWindow)
@@ -951,6 +958,13 @@ function PdfPreviewPane({
     setPaginating(true);
     setPreviewError(undefined);
     pendingFrameRef.current = targetFrame;
+    window.clearTimeout(paginationTimeoutRef.current);
+    paginationTimeoutRef.current = window.setTimeout(() => {
+      if (pendingFrameRef.current !== targetFrame) return;
+      pendingFrameRef.current = undefined;
+      setPreviewError("ページの組版がタイムアウトしました");
+      setPaginating(false);
+    }, PAGINATION_TIMEOUT_MS);
     const nextDocument = previewDocument(
       preview,
       frameWindow?.scrollX ?? initialScroll.x,
@@ -974,6 +988,8 @@ function PdfPreviewPane({
         if (frameIndex !== pendingFrameRef.current) return;
         const nextFrame = frameIndex as 0 | 1;
         activeFrameRef.current = nextFrame;
+        pendingFrameRef.current = undefined;
+        window.clearTimeout(paginationTimeoutRef.current);
         setActiveFrame(nextFrame);
         needsInitialFit.current = false;
         setPageCount(Number(event.data.pageCount) || 0);
@@ -987,6 +1003,9 @@ function PdfPreviewPane({
           y: Number(event.data.scrollY) || 0,
         });
       if (event.data?.type === "inkframe:preview-error") {
+        if (frameIndex !== pendingFrameRef.current) return;
+        pendingFrameRef.current = undefined;
+        window.clearTimeout(paginationTimeoutRef.current);
         setPreviewError(String(event.data.message));
         setPaginating(false);
       }
@@ -1046,11 +1065,12 @@ function PdfPreviewPane({
         <span>{pageCount ? `${pageCount}ページ · ${status}` : status}</span>
       </div>
       <div className="html-preview-stage">
-        {(status === "レンダリング中" || paginating) && (
-          <div className="rendering-banner">
-            <i /> レイアウトを組み立てています
-          </div>
-        )}
+        {!frameDocuments[activeFrame] &&
+          (status === "レンダリング中" || paginating) && (
+            <div className="rendering-banner">
+              <i /> レイアウトを組み立てています
+            </div>
+          )}
         {(error || previewError) && !frameDocuments[activeFrame] ? (
           <div className="preview-error">
             <strong>プレビューを更新できませんでした</strong>
@@ -1067,6 +1087,13 @@ function PdfPreviewPane({
                 srcDoc={srcDoc}
                 title="ページプレビュー"
                 key={index}
+                onError={() => {
+                  if (index !== pendingFrameRef.current) return;
+                  pendingFrameRef.current = undefined;
+                  window.clearTimeout(paginationTimeoutRef.current);
+                  setPreviewError("プレビューを読み込めませんでした");
+                  setPaginating(false);
+                }}
               />
             ) : null,
           )
@@ -2005,12 +2032,21 @@ export function App() {
   const render = useCallback(async () => {
     if (!document) return;
     const id = ++renderId.current;
+    let renderTimeout: number | undefined;
     setStatus("レンダリング中");
     setError(undefined);
     try {
-      const [nextPreview, nextInspection] = await Promise.all([
-        window.mdpdf.renderPreview(document.content, document.path, options),
-        window.mdpdf.inspect(document.content),
+      const [nextPreview, nextInspection] = await Promise.race([
+        Promise.all([
+          window.mdpdf.renderPreview(document.content, document.path, options),
+          window.mdpdf.inspect(document.content),
+        ]),
+        new Promise<never>((_, reject) => {
+          renderTimeout = window.setTimeout(
+            () => reject(new Error("プレビュー生成がタイムアウトしました")),
+            PREVIEW_RENDER_TIMEOUT_MS,
+          );
+        }),
       ]);
       if (id === renderId.current) {
         const autoFit = canAutoFitNextPreview.current;
@@ -2031,6 +2067,8 @@ export function App() {
         setError(caught instanceof Error ? caught.message : String(caught));
         setStatus("エラー");
       }
+    } finally {
+      window.clearTimeout(renderTimeout);
     }
   }, [document, options]);
   useEffect(() => {
