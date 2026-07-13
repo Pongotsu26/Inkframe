@@ -130,6 +130,9 @@ async function writeAppSettings(value: AppSettings): Promise<void> {
   await mkdir(dirname(appSettingsPath()), { recursive: true });
   await writeFile(appSettingsPath(), JSON.stringify(value, null, 2));
 }
+async function localized(en: string, ja: string): Promise<string> {
+  return (await appSettings()).language === "ja" ? ja : en;
+}
 function themeSlug(name: string): string {
   return (
     name
@@ -223,7 +226,7 @@ async function chooseMarkdown(): Promise<
   { path: string; content: string } | undefined
 > {
   const result = await dialog.showOpenDialog(mainWindow!, {
-    title: "Markdown を開く",
+    title: await localized("Open Markdown", "Markdown を開く"),
     properties: ["openFile"],
     filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
   });
@@ -237,7 +240,10 @@ async function chooseFolder(): Promise<
   { path: string; content: string } | undefined
 > {
   const result = await dialog.showOpenDialog(mainWindow!, {
-    title: "Markdown フォルダを開く",
+    title: await localized(
+      "Open Markdown Folder",
+      "Markdown フォルダを開く",
+    ),
     properties: ["openDirectory"],
   });
   if (result.canceled || !result.filePaths[0]) return undefined;
@@ -249,9 +255,14 @@ async function chooseFolder(): Promise<
   if (!markdown) {
     await dialog.showMessageBox(mainWindow!, {
       type: "info",
-      message: "Markdownファイルが見つかりません",
-      detail:
+      message: await localized(
+        "No Markdown files found",
+        "Markdownファイルが見つかりません",
+      ),
+      detail: await localized(
+        "The selected folder does not contain a .md or .markdown file at its top level.",
         "選択したフォルダの直下に .md または .markdown ファイルがありません。",
+      ),
     });
     return undefined;
   }
@@ -299,7 +310,10 @@ async function openEditor(
   }
   const error = await shell.openPath(path);
   return error
-    ? { ok: false, message: `エディタで開けませんでした: ${error}` }
+    ? {
+        ok: false,
+        message: `${await localized("Could not open in editor", "エディタで開けませんでした")}: ${error}`,
+      }
     : { ok: true, method: "system" };
 }
 async function editors(): Promise<EditorInfo[]> {
@@ -401,7 +415,7 @@ app.whenReady().then(async () => {
       let target = path;
       if (!target) {
         const result = await dialog.showSaveDialog(mainWindow!, {
-          title: "Markdown を保存",
+          title: await localized("Save Markdown", "Markdown を保存"),
           defaultPath: "document.md",
           filters: [{ name: "Markdown", extensions: ["md"] }],
         });
@@ -448,7 +462,7 @@ app.whenReady().then(async () => {
       await mkdir(dirname(inputPath), { recursive: true });
       await writeFile(inputPath, content, "utf8");
       const result = await dialog.showSaveDialog(mainWindow!, {
-        title: "PDF を保存",
+        title: await localized("Save PDF", "PDF を保存"),
         defaultPath:
           options.output ?? inputPath.replace(/\.(?:md|markdown)$/i, ".pdf"),
         filters: [{ name: "PDF", extensions: ["pdf"] }],
@@ -506,7 +520,12 @@ app.whenReady().then(async () => {
   ipcMain.handle("themes:delete", async (_event, cssPath: string) => {
     const directory = dirname(cssPath);
     if (dirname(directory) !== customThemesPath())
-      throw new Error("カスタムテーマだけを削除できます");
+      throw new Error(
+        await localized(
+          "Only custom themes can be deleted",
+          "カスタムテーマだけを削除できます",
+        ),
+      );
     await rm(directory, { recursive: true, force: true });
   });
   ipcMain.handle("themes:export", async (_event, cssPath: string) => {
@@ -515,7 +534,7 @@ app.whenReady().then(async () => {
     );
     const css = await readFile(cssPath, "utf8");
     const result = await dialog.showSaveDialog(mainWindow!, {
-      title: "テーマを書き出す",
+      title: await localized("Export Theme", "テーマを書き出す"),
       defaultPath: `${themeSlug(metadata.name)}.inkframe-theme.json`,
       filters: [{ name: "Inkframe Theme", extensions: ["json"] }],
     });
@@ -532,7 +551,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("themes:import", async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
-      title: "テーマを読み込む",
+      title: await localized("Import Theme", "テーマを読み込む"),
       properties: ["openFile"],
       filters: [{ name: "Inkframe Theme", extensions: ["json", "css"] }],
     });
@@ -562,7 +581,12 @@ app.whenReady().then(async () => {
         css?: string;
       };
       if (bundle.format !== "inkframe-theme" || typeof bundle.css !== "string")
-        throw new Error("Inkframeテーマファイルではありません");
+        throw new Error(
+          await localized(
+            "This is not an Inkframe theme file",
+            "Inkframeテーマファイルではありません",
+          ),
+        );
       metadata = {
         name: bundle.metadata?.name || basename(source, ".json"),
         description: bundle.metadata?.description,

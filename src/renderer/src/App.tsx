@@ -100,17 +100,82 @@ const ENGLISH_UI = new Map<string, string>([
   ["キャンセル", "Cancel"],
   ["保存", "Save"],
   ["閉じる", "Close"],
+  ["左ペインを閉じる", "Close Left Pane"],
+  ["左ペインを開く", "Open Left Pane"],
+  ["右ペインを閉じる", "Close Right Pane"],
+  ["右ペインを開く", "Open Right Pane"],
+  ["ページ", "Pages"],
+  ["サイズ", "Size"],
+  ["フォントを検索", "Search Fonts"],
+  ["システム既定", "System Default"],
+  ["ウェイト／スタイル", "Weight / Style"],
+  ["フォント既定", "Font Default"],
+  ["ページ番号のフォント", "Page Number Font"],
+  ["コード", "Code"],
+  ["PDFに使用するサイズ", "Sizes Used in PDF"],
+  ["テーマ既定", "Theme Default"],
+  ["フォントをPDFに埋め込む", "Embed Fonts in PDF"],
+  ["パスワード保護", "Password Protection"],
+  ["任意", "Optional"],
+  ["アプリ設定", "Application"],
+  ["言語", "Language"],
+  ["エディター", "Editor"],
+  ["タイトル情報から表紙を生成", "Generate Cover from Title Metadata"],
+  ["監視エラー", "Watch Error"],
+  ["エラー", "Error"],
+  ["PDFを書き出し中", "Exporting PDF"],
+  ["書き出し完了", "Export Complete"],
+  ["あいうえお ABC 123", "Sample Text ABC 123"],
+  ["見出しサンプル Heading", "Heading Sample"],
+  ["電子書籍", "E-book"],
+  ["A5 判の読み物に適した電子書籍テーマ", "An e-book theme for readable A5 publications"],
+  ["GitHub README に近い読みやすい技術文書テーマ", "A readable technical-document theme inspired by GitHub README"],
+  ["議事録", "Meeting Minutes"],
+  ["会議記録を整理して読みやすく出力するテーマ", "A clear, organized theme for meeting records"],
+  ["シンプル白黒", "Simple Monochrome"],
+  ["印刷に適した白黒のミニマルテーマ", "A minimal monochrome theme optimized for printing"],
+  ["論文・研究レポート向けの端正なテーマ", "A refined theme for papers and research reports"],
+  ["論文", "Academic Paper"],
+  ["履歴書・職務経歴書", "Resume / CV"],
+  ["経歴書を整然と出力するビジネス向けテーマ", "A structured business theme for resumes and CVs"],
+  ["プレゼン資料", "Presentation"],
+  ["横長ページで要点を伝えるプレゼンテーションテーマ", "A landscape presentation theme for communicating key points"],
+  ["技術書", "Technical Book"],
+  ["技術文書・設計書向けの読みやすいテーマ", "A readable theme for technical and design documents"],
+  ["大学レポート", "University Report"],
+  ["日本語の大学提出レポート向けの端正なテーマ", "A refined theme for university reports"],
+  ["日本語縦書き", "Vertical Japanese"],
+  ["縦書きの日本語文書を出力するテーマ", "A theme for vertical Japanese documents"],
+  ["フォント", "Fonts"],
+  ["表紙", "Cover"],
+  ["テーマ", "Theme"],
+  ["はDefault Themeです", " is the Default Theme"],
+  ["をSet as Default Theme", " — Set as Default Theme"],
+  ["Pages ·", " pages ·"],
+  ["マイテーマ", "My Theme"],
+  ["TODO が残っています", "TODO remains in the document"],
+  ["見出し記号の後に空白が必要です", "A space is required after the heading marker"],
+  ["設定ファイルを読み込めません", "Could not read the configuration file"],
+  ["テーマが見つかりません", "Theme not found"],
+  ["フォント一覧を取得できません。OS のフォント管理コマンドを確認してください", "Could not retrieve the font list. Check the operating system's font-management command"],
+  ["余白は CSS と同じ形式で 1〜4 個の値を指定してください（例: 20mm 18mm）", "Specify one to four margin values using CSS syntax (for example: 20mm 18mm)"],
+  ["Ghostscript を実行できません。PDF の結合・圧縮には Ghostscript をインストールしてください。", "Could not run Ghostscript. Install Ghostscript to merge or compress PDFs."],
+  ["Chromium を起動できません。", "Could not start Chromium."],
+  ["を実行してください。", "Please run it."],
 ]);
+const ENGLISH_UI_ENTRIES = [...ENGLISH_UI].sort(
+  ([left], [right]) => right.length - left.length,
+);
 
 function translateEnglishInterface(root: Node): void {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const nodes: Text[] = [];
+  const walker = window.document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = root instanceof Text ? [root] : [];
   while (walker.nextNode()) nodes.push(walker.currentNode as Text);
   for (const node of nodes) {
     let value = node.data;
-    for (const [japanese, english] of ENGLISH_UI)
+    for (const [japanese, english] of ENGLISH_UI_ENTRIES)
       value = value.replaceAll(japanese, english);
-    node.data = value;
+    if (value !== node.data) node.data = value;
   }
   const elements =
     root instanceof Element
@@ -121,9 +186,9 @@ function translateEnglishInterface(root: Node): void {
       const value = element.getAttribute(attribute);
       if (!value) continue;
       let translated = value;
-      for (const [japanese, english] of ENGLISH_UI)
+      for (const [japanese, english] of ENGLISH_UI_ENTRIES)
         translated = translated.replaceAll(japanese, english);
-      element.setAttribute(attribute, translated);
+      if (translated !== value) element.setAttribute(attribute, translated);
     }
   }
 }
@@ -1864,10 +1929,17 @@ export function App() {
     window.document.documentElement.lang = "en";
     translateEnglishInterface(window.document.body);
     const observer = new MutationObserver((records) => {
-      for (const record of records)
+      for (const record of records) {
+        if (record.type === "characterData")
+          translateEnglishInterface(record.target);
         for (const node of record.addedNodes) translateEnglishInterface(node);
+      }
     });
-    observer.observe(window.document.body, { childList: true, subtree: true });
+    observer.observe(window.document.body, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
     return () => observer.disconnect();
   }, [settings.language]);
   const canAutoFitNextPreview = useRef(
@@ -2139,10 +2211,16 @@ export function App() {
     const sourceTheme = themes.some((theme) => theme.id === options.theme)
       ? options.theme
       : "github";
-    const name = window.prompt("新しいテーマ名", "マイテーマ");
+    const japanese = settings.language === "ja";
+    const name = window.prompt(
+      japanese ? "新しいテーマ名" : "New theme name",
+      japanese ? "マイテーマ" : "My Theme",
+    );
     if (name === null) return;
     const saveDefaults = window.confirm(
-      "現在の各種設定を、このテーマの規定値として保存しますか？\n\n「キャンセル」を選ぶとCSSだけのテーマを作成します。",
+      japanese
+        ? "現在の各種設定を、このテーマの規定値として保存しますか？\n\n「キャンセル」を選ぶとCSSだけのテーマを作成します。"
+        : "Save the current settings as this theme's defaults?\n\nChoose Cancel to create a CSS-only theme.",
     );
     const theme = await window.mdpdf.createTheme(
       name,
@@ -2162,7 +2240,11 @@ export function App() {
     setOptions((current) => ({ ...current, theme: theme.id }));
   };
   const deleteTheme = async (theme: Theme) => {
-    if (!theme.cssPath || !window.confirm(`「${theme.name}」を削除しますか？`))
+    const message =
+      settings.language === "ja"
+        ? `「${theme.name}」を削除しますか？`
+        : `Delete “${theme.name}”?`;
+    if (!theme.cssPath || !window.confirm(message))
       return;
     await window.mdpdf.deleteTheme(theme.cssPath);
     const nextThemes = await window.mdpdf.themes();
