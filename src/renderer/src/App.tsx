@@ -1861,13 +1861,13 @@ export function App() {
   const renderId = useRef(0);
   useEffect(() => {
     if (settings.language !== "en") return;
-    document.documentElement.lang = "en";
-    translateEnglishInterface(document.body);
+    window.document.documentElement.lang = "en";
+    translateEnglishInterface(window.document.body);
     const observer = new MutationObserver((records) => {
       for (const record of records)
         for (const node of record.addedNodes) translateEnglishInterface(node);
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(window.document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [settings.language]);
   const canAutoFitNextPreview = useRef(
