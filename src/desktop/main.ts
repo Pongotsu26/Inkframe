@@ -121,7 +121,9 @@ const EDITOR_CANDIDATES: EditorCandidate[] = [
     name: "Nova",
     applicationNames: ["Nova.app"],
     relativeExecutable: "Contents/MacOS/Nova",
-    arguments: (path, line) => [`nova://open?path=${encodeURIComponent(path)}&line=${line}`],
+    arguments: (path, line) => [
+      `nova://open?path=${encodeURIComponent(path)}&line=${line}`,
+    ],
   },
   {
     id: "textmate",
@@ -192,7 +194,9 @@ async function installedEditor(
   return undefined;
 }
 
-async function applicationIcon(applicationPath: string): Promise<string | undefined> {
+async function applicationIcon(
+  applicationPath: string,
+): Promise<string | undefined> {
   try {
     const { stdout } = await execFileAsync("plutil", [
       "-extract",
@@ -405,10 +409,7 @@ async function chooseFolder(): Promise<
   { path: string; content: string } | undefined
 > {
   const result = await dialog.showOpenDialog(mainWindow!, {
-    title: await localized(
-      "Open Markdown Folder",
-      "Markdown フォルダを開く",
-    ),
+    title: await localized("Open Markdown Folder", "Markdown フォルダを開く"),
     properties: ["openDirectory"],
   });
   if (result.canceled || !result.filePaths[0]) return undefined;
@@ -469,9 +470,7 @@ async function openEditor(
     : { ok: true, method: "system" };
 }
 async function editors(): Promise<EditorInfo[]> {
-  const available: EditorInfo[] = [
-    { id: "system", name: "System default" },
-  ];
+  const available: EditorInfo[] = [{ id: "system", name: "System default" }];
   for (const candidate of EDITOR_CANDIDATES) {
     const installed = await installedEditor(candidate);
     if (!installed) continue;
@@ -874,10 +873,7 @@ function sendMenuAction(action: string, value?: unknown): void {
 async function openLegalDocument(name: string): Promise<void> {
   const projectRoot = resolve(import.meta.dirname, "../../");
   const developmentDocuments: Record<string, string> = {
-    ELECTRON_LICENSE: join(
-      projectRoot,
-      "node_modules/electron/dist/LICENSE",
-    ),
+    ELECTRON_LICENSE: join(projectRoot, "node_modules/electron/dist/LICENSE"),
     "LICENSES.chromium.html": join(
       projectRoot,
       "node_modules/electron/dist/LICENSES.chromium.html",
@@ -902,14 +898,6 @@ async function installApplicationMenu(): Promise<void> {
             label: app.name,
             submenu: [
               { role: "about" as const, label: "Inkframe について" },
-              {
-                label: "アップデートを確認…",
-                click: () =>
-                  shell.openExternal(
-                    "https://github.com/Pongotsu26/Inkframe/releases/latest",
-                  ),
-              },
-              { type: "separator" as const },
               {
                 label: "設定…",
                 accelerator: "CommandOrControl+,",
@@ -1134,7 +1122,6 @@ async function installApplicationMenu(): Promise<void> {
   if (!japanese) {
     const labels = new Map([
       ["Inkframe について", "About Inkframe"],
-      ["アップデートを確認…", "Check for Updates…"],
       ["設定…", "Settings…"],
       ["ファイル", "File"],
       ["新しいタブ", "New Tab"],
