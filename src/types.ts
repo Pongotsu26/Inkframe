@@ -55,6 +55,8 @@ export interface MdpdfConfig {
   mermaid?: boolean;
   /** Render inline and display TeX with KaTeX. Defaults to true. */
   math?: boolean;
+  /** Convert soft line endings inside paragraphs to HTML line breaks. */
+  lineBreaks?: boolean;
   font?: FontOptions;
   /** Exact installed font face names, used for vendor-specific weights such as L, R, M, or DB. */
   fontFace?: FontFaceOptions;

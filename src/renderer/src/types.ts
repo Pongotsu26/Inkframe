@@ -9,6 +9,8 @@ export interface ConvertOptions {
   pageNumberFont?: { family?: string; face?: string };
   cover?: boolean;
   orientation?: "portrait" | "landscape";
+  lineBreaks?: boolean;
+  themeSettingsMode?: "theme" | "app";
   font?: { body?: string; heading?: string; code?: string };
   fontFace?: { body?: string; heading?: string; code?: string };
   fontSize?: {
@@ -60,10 +62,18 @@ export interface Theme {
   orientation?: "portrait" | "landscape";
   custom?: boolean;
   cssPath?: string;
+  defaults?: ConvertOptions;
 }
 export interface AppSettings {
   defaultTheme?: string;
   defaultOptions?: ConvertOptions;
+  language?: "en" | "ja";
+  editor?: string;
+}
+export interface EditorInfo {
+  id: string;
+  name: string;
+  icon?: string;
 }
 export interface FontFamily {
   family: string;
@@ -91,20 +101,29 @@ export interface MdpdfApi {
     options: ConvertOptions,
   ): Promise<ExportResult | undefined>;
   fonts(): Promise<FontFamily[]>;
+  editors(): Promise<EditorInfo[]>;
   themes(): Promise<Theme[]>;
   history(): Promise<HistoryItem[]>;
-  createTheme(name: string, sourceTheme?: string): Promise<Theme>;
+  createTheme(
+    name: string,
+    sourceTheme?: string,
+    defaults?: ConvertOptions,
+  ): Promise<Theme>;
   editTheme(cssPath: string): Promise<{ ok: boolean; message?: string }>;
   deleteTheme(cssPath: string): Promise<void>;
   importTheme(): Promise<Theme | undefined>;
   exportTheme(cssPath: string): Promise<boolean>;
   settings(): Promise<AppSettings>;
   setDefaultTheme(theme?: string): Promise<AppSettings>;
-  setDefaultOptions(options: ConvertOptions): Promise<AppSettings>;
+  setDefaultOptions(
+    options: ConvertOptions,
+    preferences?: Pick<AppSettings, "language" | "editor">,
+  ): Promise<AppSettings>;
   openEditor(
     path: string,
     line?: number,
     column?: number,
+    editor?: string,
   ): Promise<{ ok: boolean; message?: string }>;
   reveal(path: string): Promise<void>;
   openPath(path: string): Promise<string>;

@@ -4,6 +4,7 @@ import type {
   AppSettings,
   ConvertOptions,
   DocumentFile,
+  EditorInfo,
   ExportResult,
   FontFamily,
   HistoryItem,
@@ -19,6 +20,7 @@ const PAGED_POLYFILL_URL = URL.createObjectURL(
 const EMPTY_INSPECTION: Inspection = { outline: [], issues: [], assets: [] };
 const DEFAULT_CODE_THEME = "github-dark";
 const PREVIEW_ZOOM_STORAGE_KEY = "inkframe:preview-zoom";
+const MAX_PREVIEW_ZOOM = 500;
 const CODE_THEMES = [
   { id: "github-dark", name: "GitHub Dark" },
   { id: "light-plus", name: "Light Plus" },
@@ -28,6 +30,103 @@ const CODE_THEMES = [
   { id: "one-dark-pro", name: "One Dark Pro" },
   { id: "dracula", name: "Dracula" },
 ];
+const ENGLISH_UI = new Map<string, string>([
+  ["Markdownを追加", "Add Markdown"],
+  ["Markdownファイルを開く", "Open Markdown File"],
+  ["フォルダを開く", "Open Folder"],
+  ["Markdownをここにドロップ", "Drop Markdown here"],
+  ["Markdownを、読みやすく美しいPDFへ仕上げるローカル組版スタジオ。", "A local typesetting studio for polished, readable PDFs."],
+  ["最近の文書", "Recent Documents"],
+  ["テーマを追加", "Add Theme"],
+  ["読み込む", "Import"],
+  ["既定のテーマに設定", "Set as Default Theme"],
+  ["既定のテーマ", "Default Theme"],
+  ["カスタムCSS", "Custom CSS"],
+  ["組み込みテーマ", "Built-in Theme"],
+  ["編集", "Edit"],
+  ["書出", "Export"],
+  ["削除", "Delete"],
+  ["Finderに表示", "Show in Finder"],
+  ["プレビュー更新", "Refresh Preview"],
+  ["PDFを書き出す", "Export PDF"],
+  ["タブを閉じる", "Close Tab"],
+  ["監視中", "Watching"],
+  ["未監視", "Not Watching"],
+  ["待機中", "Ready"],
+  ["更新済み", "Updated"],
+  ["レンダリング中", "Rendering"],
+  ["変更を検出", "Change Detected"],
+  ["見出しがありません", "No headings"],
+  ["問題は見つかりませんでした", "No issues found"],
+  ["画像や添付ファイルはありません", "No images or attachments"],
+  ["履歴はまだありません", "No recent history"],
+  ["ページプレビュー", "Page Preview"],
+  ["レイアウトを組み立てています", "Building layout"],
+  ["プレビューを更新できませんでした", "Could not refresh preview"],
+  ["幅に合わせる", "Fit Width"],
+  ["ドキュメントテーマ", "Document Theme"],
+  ["PDFの組版と表現を選択", "Choose PDF layout and appearance"],
+  ["設定の既定値", "Settings Defaults"],
+  ["アプリの規定を使う", "Use Application Defaults"],
+  ["テーマの規定を使う", "Use Theme Defaults"],
+  ["コードテーマ", "Code Theme"],
+  ["表紙を追加", "Add Cover"],
+  ["タイトル情報から生成します", "Generate from title metadata"],
+  ["用紙サイズ", "Paper Size"],
+  ["向き", "Orientation"],
+  ["余白", "Margins"],
+  ["ページ要素", "Page Elements"],
+  ["Markdown内の改行を反映", "Preserve Markdown Line Breaks"],
+  ["目次", "Table of Contents"],
+  ["ページ番号", "Page Numbers"],
+  ["形式", "Format"],
+  ["ローカルフォント", "Local Fonts"],
+  ["端末にインストール済みのフォントを使用", "Use fonts installed on this computer"],
+  ["本文", "Body"],
+  ["見出し", "Headings"],
+  ["フォントサイズ", "Font Size"],
+  ["出力設定", "Export Settings"],
+  ["ファイル名", "File Name"],
+  ["出力先", "Destination"],
+  ["書き出し時に選択", "Choose when exporting"],
+  ["PDFを圧縮", "Compress PDF"],
+  ["メタデータを含める", "Include Metadata"],
+  ["書き出しが完了しました", "Export Complete"],
+  ["PDFを開く", "Open PDF"],
+  ["パスをコピー", "Copy Path"],
+  ["規定の書式設定", "Default Formatting"],
+  ["新しい文書で使用する組版の初期値を設定します。", "Set the initial layout for new documents."],
+  ["初期値に戻す", "Reset to Defaults"],
+  ["キャンセル", "Cancel"],
+  ["保存", "Save"],
+  ["閉じる", "Close"],
+]);
+
+function translateEnglishInterface(root: Node): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+  for (const node of nodes) {
+    let value = node.data;
+    for (const [japanese, english] of ENGLISH_UI)
+      value = value.replaceAll(japanese, english);
+    node.data = value;
+  }
+  const elements =
+    root instanceof Element
+      ? [root, ...root.querySelectorAll("[title], [aria-label], [placeholder]")]
+      : [];
+  for (const element of elements) {
+    for (const attribute of ["title", "aria-label", "placeholder"]) {
+      const value = element.getAttribute(attribute);
+      if (!value) continue;
+      let translated = value;
+      for (const [japanese, english] of ENGLISH_UI)
+        translated = translated.replaceAll(japanese, english);
+      element.setAttribute(attribute, translated);
+    }
+  }
+}
 const DEFAULT_OPTIONS: ConvertOptions = {
   theme: "github",
   codeTheme: DEFAULT_CODE_THEME,
@@ -38,12 +137,14 @@ const DEFAULT_OPTIONS: ConvertOptions = {
   pageNumber: true,
   pageNumberFormat: "current-total",
   cover: false,
+  lineBreaks: false,
+  themeSettingsMode: "app",
   font: {},
   fontSize: { body: 10.5 },
 };
 function savedPreviewZoom(): number | undefined {
   const value = Number(window.localStorage.getItem(PREVIEW_ZOOM_STORAGE_KEY));
-  return Number.isFinite(value) && value >= 40 && value <= 200
+  return Number.isFinite(value) && value >= 40 && value <= MAX_PREVIEW_ZOOM
     ? value
     : undefined;
 }
@@ -290,6 +391,8 @@ function TopBar({
   rightPaneOpen,
   onToggleLeftPane,
   onToggleRightPane,
+  editor,
+  language,
 }: {
   path: string;
   documents: DocumentFile[];
@@ -306,6 +409,8 @@ function TopBar({
   rightPaneOpen: boolean;
   onToggleLeftPane: () => void;
   onToggleRightPane: () => void;
+  editor?: EditorInfo;
+  language: "en" | "ja";
 }) {
   return (
     <header className="topbar">
@@ -354,7 +459,12 @@ function TopBar({
         </div>
       </div>
       <div className="topbar-actions">
-        <Button onClick={onOpenEditor}>VS Codeで開く</Button>
+        <Button onClick={onOpenEditor}>
+          {editor?.icon && (
+            <img className="editor-icon" src={editor.icon} alt="" />
+          )}
+          {language === "ja" ? "エディターで開く" : "Open in Editor"}
+        </Button>
         <Button onClick={onReveal}>Finderに表示</Button>
         <Button onClick={onRefresh}>プレビュー更新</Button>
         <Button primary onClick={onExport}>
@@ -394,6 +504,8 @@ function LeftSidebar({
   active,
   onActive,
   onOpenLine,
+  onPreviewHeading,
+  language,
   onHistory,
 }: {
   document: DocumentFile;
@@ -402,6 +514,8 @@ function LeftSidebar({
   active: SideSection;
   onActive: (value: SideSection) => void;
   onOpenLine: (line: number, column?: number) => void;
+  onPreviewHeading: (id: string) => void;
+  language: "en" | "ja";
   onHistory: (path: string) => void;
 }) {
   const sections: SideSection[] = [
@@ -430,7 +544,9 @@ function LeftSidebar({
       <div className="side-content">
         {active === "Source" && (
           <>
-            <div className="section-label">開いている文書</div>
+            <div className="section-label">
+              {language === "ja" ? "開いている文書" : "OPEN DOCUMENTS"}
+            </div>
             <button className="source-file selected">
               <span>MD</span>
               <div>
@@ -447,18 +563,49 @@ function LeftSidebar({
         {active === "Outline" && (
           <>
             <div className="section-label">DOCUMENT OUTLINE</div>
+            <div className="section-hint">
+              {language === "ja"
+                ? "クリック: プレビューへ移動 · ⌘クリック: エディターで開く"
+                : "Click: jump in preview · ⌘ Click: open in editor"}
+            </div>
             {inspection.outline.length ? (
-              inspection.outline.map((item) => (
+              inspection.outline.map((item, index) => {
+                const base =
+                  item.text
+                    .toLowerCase()
+                    .trim()
+                    .replace(/<[^>]*>/g, "")
+                    .replace(/[^\p{L}\p{N}]+/gu, "-")
+                    .replace(/^-|-$/g, "") || "section";
+                const duplicateIndex = inspection.outline
+                  .slice(0, index)
+                  .filter((previous) => {
+                    const previousBase =
+                      previous.text
+                        .toLowerCase()
+                        .trim()
+                        .replace(/<[^>]*>/g, "")
+                        .replace(/[^\p{L}\p{N}]+/gu, "-")
+                        .replace(/^-|-$/g, "") || "section";
+                    return previousBase === base;
+                  }).length;
+                const id = duplicateIndex ? `${base}-${duplicateIndex}` : base;
+                return (
                 <button
                   className="tree-item"
                   style={{ paddingLeft: 12 + (item.level - 1) * 14 }}
-                  onClick={() => onOpenLine(item.line)}
+                  onClick={(event) =>
+                    event.metaKey
+                      ? onOpenLine(item.line)
+                      : onPreviewHeading(id)
+                  }
                   key={`${item.line}-${item.text}`}
                 >
                   <span className="hash">H{item.level}</span>
                   {item.text}
                 </button>
-              ))
+                );
+              })
             ) : (
               <Empty label="見出しがありません" />
             )}
@@ -478,7 +625,11 @@ function LeftSidebar({
                   <div>
                     <strong>{issue.message}</strong>
                     <small>
-                      行 {issue.line}, 列 {issue.column} · VS Codeで開く
+                      {language === "ja" ? "行" : "Line"} {issue.line},{" "}
+                      {language === "ja" ? "列" : "column"} {issue.column} ·{" "}
+                      {language === "ja"
+                        ? "エディターで開く"
+                        : "Open in editor"}
                     </small>
                   </div>
                 </button>
@@ -579,10 +730,16 @@ pre code, pre.shiki code { white-space: inherit; overflow-wrap: inherit; }
 (() => {
   let zoom = ${JSON.stringify(zoom)};
   let scrollFrame = 0;
-  const clamp = value => Math.max(40, Math.min(200, Math.round(value)));
+  const clamp = value => Math.max(40, Math.min(${MAX_PREVIEW_ZOOM}, Math.round(value)));
   const fitWidth = () => {
     const page = document.querySelector('.pagedjs_page');
-    if (page?.offsetWidth) applyZoom(Math.max(0, innerWidth - 48) / page.offsetWidth * 100);
+    const pages = document.querySelector('.pagedjs_pages');
+    if (!page?.offsetWidth || !pages) return;
+    const style = getComputedStyle(pages);
+    const horizontalPadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    const viewportWidth = document.documentElement.clientWidth;
+    const fittedZoom = viewportWidth / (page.offsetWidth + horizontalPadding) * 100;
+    applyZoom(Math.floor(fittedZoom));
   };
   const applyZoom = (value, clientX = innerWidth / 2, clientY = innerHeight / 2) => {
     const pages = document.querySelector('.pagedjs_pages');
@@ -610,6 +767,10 @@ pre code, pre.shiki code { white-space: inherit; overflow-wrap: inherit; }
   addEventListener('message', event => {
     if (event.data?.type === 'inkframe:set-zoom') applyZoom(event.data.zoom);
     if (event.data?.type === 'inkframe:fit-width') fitWidth();
+    if (event.data?.type === 'inkframe:scroll-heading') {
+      const heading = document.getElementById(event.data.id);
+      heading?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   });
   window.PagedConfig = {
     before: async () => {
@@ -755,6 +916,21 @@ function PdfPreviewPane({
   useEffect(() => {
     if (!active) return;
     changeZoom(zoom);
+  }, [active]);
+  useEffect(() => {
+    const scrollToHeading = (event: Event) => {
+      if (!active) return;
+      frameRefs.current[activeFrameRef.current]?.contentWindow?.postMessage(
+        {
+          type: "inkframe:scroll-heading",
+          id: (event as CustomEvent<string>).detail,
+        },
+        "*",
+      );
+    };
+    window.addEventListener("inkframe:scroll-heading", scrollToHeading);
+    return () =>
+      window.removeEventListener("inkframe:scroll-heading", scrollToHeading);
   }, [active]);
   const changeZoom = (next: number) =>
     frameRefs.current[activeFrameRef.current]?.contentWindow?.postMessage(
@@ -948,6 +1124,39 @@ function RightInspector({
               title="ドキュメントテーマ"
               description="PDFの組版と表現を選択"
             >
+              <label>
+                設定の既定値
+                <select
+                  value={options.themeSettingsMode ?? "app"}
+                  onChange={(event) => {
+                    const mode = event.target.value as "theme" | "app";
+                    const selectedTheme = themes.find(
+                      (theme) => theme.id === options.theme,
+                    );
+                    const defaults =
+                      mode === "theme"
+                        ? {
+                            ...selectedTheme?.defaults,
+                            ...(selectedTheme?.paper
+                              ? { paper: selectedTheme.paper }
+                              : {}),
+                            ...(selectedTheme?.orientation
+                              ? { orientation: selectedTheme.orientation }
+                              : {}),
+                          }
+                        : { ...DEFAULT_OPTIONS, ...settings.defaultOptions };
+                    onOptions({
+                      ...options,
+                      ...defaults,
+                      theme: options.theme,
+                      themeSettingsMode: mode,
+                    });
+                  }}
+                >
+                  <option value="app">アプリの規定を使う</option>
+                  <option value="theme">テーマの規定を使う</option>
+                </select>
+              </label>
               <div className="theme-toolbar">
                 <Button onClick={onCreateTheme}>テーマを追加</Button>
                 <Button onClick={onImportTheme}>読み込む</Button>
@@ -959,15 +1168,27 @@ function RightInspector({
                     index={index}
                     selected={options.theme === theme.id}
                     isDefault={settings.defaultTheme === theme.id}
-                    onSelect={() =>
+                    onSelect={() => {
+                      const defaults =
+                        options.themeSettingsMode === "theme"
+                          ? {
+                              ...theme.defaults,
+                              ...(theme.paper ? { paper: theme.paper } : {}),
+                              ...(theme.orientation
+                                ? { orientation: theme.orientation }
+                                : {}),
+                            }
+                          : {
+                              ...DEFAULT_OPTIONS,
+                              ...settings.defaultOptions,
+                            };
                       update({
+                        ...defaults,
                         theme: theme.id,
-                        ...(theme.paper ? { paper: theme.paper } : {}),
-                        ...(theme.orientation
-                          ? { orientation: theme.orientation }
-                          : {}),
-                      })
-                    }
+                        themeSettingsMode:
+                          options.themeSettingsMode ?? "app",
+                      });
+                    }}
                     onDefault={() => onDefaultTheme(theme)}
                     onEdit={() => onEditTheme(theme)}
                     onExport={() => onExportTheme(theme)}
@@ -1032,6 +1253,11 @@ function RightInspector({
               />
             </SettingCard>
             <SettingCard title="ページ要素">
+              <Toggle
+                label="Markdown内の改行を反映"
+                checked={Boolean(options.lineBreaks)}
+                onChange={(lineBreaks) => update({ lineBreaks })}
+              />
               <Toggle
                 label="目次"
                 checked={Boolean(options.toc)}
@@ -1293,18 +1519,29 @@ function formatBytes(bytes: number) {
 
 function SettingsDialog({
   initialOptions,
+  initialSettings,
   themes,
   fonts,
+  editors,
   onCancel,
   onSave,
 }: {
   initialOptions: ConvertOptions;
+  initialSettings: AppSettings;
   themes: Theme[];
   fonts: FontFamily[];
+  editors: EditorInfo[];
   onCancel: () => void;
-  onSave: (options: ConvertOptions) => void;
+  onSave: (
+    options: ConvertOptions,
+    preferences: Pick<AppSettings, "language" | "editor">,
+  ) => void;
 }) {
   const [draft, setDraft] = useState<ConvertOptions>(initialOptions);
+  const [language, setLanguage] = useState<"en" | "ja">(
+    initialSettings.language ?? "en",
+  );
+  const [editor, setEditor] = useState(initialSettings.editor ?? "system");
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCancel();
@@ -1342,6 +1579,37 @@ function SettingsDialog({
           </button>
         </header>
         <div className="settings-body">
+          <SettingCard
+            title={language === "ja" ? "アプリ設定" : "Application"}
+          >
+            <div className="settings-two-column">
+              <label>
+                {language === "ja" ? "言語" : "Language"}
+                <select
+                  value={language}
+                  onChange={(event) =>
+                    setLanguage(event.target.value as "en" | "ja")
+                  }
+                >
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                </select>
+              </label>
+              <label>
+                {language === "ja" ? "エディター" : "Editor"}
+                <select
+                  value={editor}
+                  onChange={(event) => setEditor(event.target.value)}
+                >
+                  {editors.map((item) => (
+                    <option value={item.id} key={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </SettingCard>
           <SettingCard title="フォント">
             <div className="settings-font-grid">
               <FontPicker
@@ -1454,6 +1722,11 @@ function SettingsDialog({
             </SettingCard>
             <SettingCard title="ページ要素">
               <Toggle
+                label="Markdown内の改行を反映"
+                checked={Boolean(draft.lineBreaks)}
+                onChange={(lineBreaks) => update({ lineBreaks })}
+              />
+              <Toggle
                 label="目次"
                 checked={Boolean(draft.toc)}
                 onChange={(toc) => update({ toc })}
@@ -1541,7 +1814,10 @@ function SettingsDialog({
           </Button>
           <span />
           <Button onClick={onCancel}>キャンセル</Button>
-          <Button primary onClick={() => onSave(draft)}>
+          <Button
+            primary
+            onClick={() => onSave(draft, { language, editor })}
+          >
             保存
           </Button>
         </footer>
@@ -1566,6 +1842,7 @@ export function App() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [themes, setThemes] = useState<Theme[]>([]);
   const [fonts, setFonts] = useState<FontFamily[]>([]);
+  const [editors, setEditors] = useState<EditorInfo[]>([]);
   const [settings, setSettings] = useState<AppSettings>({});
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [side, setSide] = useState<SideSection>("Source");
@@ -1582,6 +1859,17 @@ export function App() {
     initialPreviewZoom.current ?? 100,
   );
   const renderId = useRef(0);
+  useEffect(() => {
+    if (settings.language !== "en") return;
+    document.documentElement.lang = "en";
+    translateEnglishInterface(document.body);
+    const observer = new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes) translateEnglishInterface(node);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [settings.language]);
   const canAutoFitNextPreview = useRef(
     initialPreviewZoom.current === undefined,
   );
@@ -1675,6 +1963,7 @@ export function App() {
         }));
     });
     window.mdpdf.fonts().then(setFonts).catch(console.error);
+    window.mdpdf.editors().then(setEditors).catch(console.error);
   }, []);
   useEffect(
     () => window.mdpdf.onOpenSettings(() => setShowingSettings(true)),
@@ -1781,7 +2070,13 @@ export function App() {
     }
   };
   const openLine = (line: number, column = 1) =>
-    document && window.mdpdf.openEditor(document.path, line, column);
+    document &&
+    window.mdpdf.openEditor(
+      document.path,
+      line,
+      column,
+      settings.editor,
+    );
   const drop = async (file: File) => {
     if (/\.(md|markdown)$/i.test(file.name))
       await load(await window.mdpdf.read(window.mdpdf.filePath(file)));
@@ -1844,7 +2139,18 @@ export function App() {
     const sourceTheme = themes.some((theme) => theme.id === options.theme)
       ? options.theme
       : "github";
-    const theme = await window.mdpdf.createTheme("マイテーマ", sourceTheme);
+    const name = window.prompt("新しいテーマ名", "マイテーマ");
+    if (name === null) return;
+    const saveDefaults = window.confirm(
+      "現在の各種設定を、このテーマの規定値として保存しますか？\n\n「キャンセル」を選ぶとCSSだけのテーマを作成します。",
+    );
+    const theme = await window.mdpdf.createTheme(
+      name,
+      sourceTheme,
+      saveDefaults
+        ? { ...options, theme: undefined, themeSettingsMode: undefined }
+        : undefined,
+    );
     setThemes(await window.mdpdf.themes());
     setOptions((current) => ({ ...current, theme: theme.id }));
     if (theme.cssPath) await window.mdpdf.editTheme(theme.cssPath);
@@ -1906,13 +2212,21 @@ export function App() {
   const settingsDialog = showingSettings ? (
     <SettingsDialog
       initialOptions={settings.defaultOptions ?? options}
+      initialSettings={settings}
       themes={themes}
       fonts={fonts}
+      editors={editors}
       onCancel={() => setShowingSettings(false)}
-      onSave={async (defaultOptions) => {
-        setSettings(await window.mdpdf.setDefaultOptions(defaultOptions));
+      onSave={async (defaultOptions, preferences) => {
+        const languageChanged = preferences.language !== settings.language;
+        const nextSettings = await window.mdpdf.setDefaultOptions(
+          defaultOptions,
+          preferences,
+        );
+        setSettings(nextSettings);
         setOptions(defaultOptions);
         setShowingSettings(false);
+        if (languageChanged) window.location.reload();
       }}
     />
   ) : null;
@@ -1940,6 +2254,8 @@ export function App() {
       rightPaneOpen={rightPaneOpen}
       onToggleLeftPane={() => setLeftPaneOpen((open) => !open)}
       onToggleRightPane={() => setRightPaneOpen((open) => !open)}
+      editor={editors.find((editor) => editor.id === settings.editor)}
+      language={settings.language ?? "en"}
     />
   );
   if (showingHome)
@@ -1964,6 +2280,12 @@ export function App() {
             active={side}
             onActive={setSide}
             onOpenLine={openLine}
+            onPreviewHeading={(id) =>
+              window.dispatchEvent(
+                new CustomEvent("inkframe:scroll-heading", { detail: id }),
+              )
+            }
+            language={settings.language ?? "en"}
             onHistory={(path) => window.mdpdf.read(path).then(load)}
           />
         )}

@@ -76,6 +76,8 @@ program
   .option("--no-mermaid", "Mermaid の SVG レンダリングを無効化")
   .option("--math", "KaTeX による数式レンダリングを有効化")
   .option("--no-math", "KaTeX による数式レンダリングを無効化")
+  .option("--line-breaks", "Markdown内の改行をHTMLの改行として反映")
+  .option("--no-line-breaks", "Markdown内の改行を段落内では無視")
   .option("--cover", "Frontmatter から表紙を生成")
   .option("--compress", "Ghostscript で PDF を圧縮")
   .option("--image-optimize", "PDF 内の画像をダウンサンプリングして最適化")

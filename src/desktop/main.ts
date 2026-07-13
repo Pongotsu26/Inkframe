@@ -59,6 +59,13 @@ interface SettingsHistory {
 interface AppSettings {
   defaultTheme?: string;
   defaultOptions?: ConvertOptions;
+  language?: "en" | "ja";
+  editor?: string;
+}
+interface EditorInfo {
+  id: string;
+  name: string;
+  icon?: string;
 }
 interface WindowState {
   bounds?: { width: number; height: number; x?: number; y?: number };
@@ -109,9 +116,14 @@ async function appSettings(): Promise<AppSettings> {
     const settings = JSON.parse(
       await readFile(appSettingsPath(), "utf8"),
     ) as AppSettings;
-    return { ...settings, defaultTheme: settings.defaultTheme || "github" };
+    return {
+      ...settings,
+      defaultTheme: settings.defaultTheme || "github",
+      language: settings.language || "en",
+      editor: settings.editor || "system",
+    };
   } catch {
-    return { defaultTheme: "github" };
+    return { defaultTheme: "github", language: "en", editor: "system" };
   }
 }
 async function writeAppSettings(value: AppSettings): Promise<void> {
@@ -143,6 +155,7 @@ async function uniqueThemeDirectory(name: string): Promise<string> {
 async function createCustomTheme(
   name: string,
   sourceTheme = "github",
+  defaults?: ConvertOptions,
 ): Promise<ThemeInfo> {
   const target = await uniqueThemeDirectory(name);
   await mkdir(target, { recursive: true });
@@ -150,6 +163,7 @@ async function createCustomTheme(
   const metadata = {
     name: name.trim() || "新しいテーマ",
     description: "カスタムテーマ",
+    ...(defaults ? { defaults } : {}),
   };
   await writeFile(
     join(target, "theme.json"),
@@ -250,25 +264,74 @@ async function openEditor(
   path: string,
   line = 1,
   column = 1,
+  editor = "system",
 ): Promise<{ ok: boolean; method?: string; message?: string }> {
   const target = `${path}:${line}:${column}`;
-  try {
-    await execFileAsync(
-      process.env.INKFRAME_EDITOR || process.env.MDPDF_EDITOR || "code",
-      ["-g", target],
-    );
-    return { ok: true, method: "code" };
-  } catch {}
-  try {
-    await shell.openExternal(
-      `vscode://file/${encodeURI(path)}:${line}:${column}`,
-    );
-    return { ok: true, method: "vscode-uri" };
-  } catch {}
+  const commands: Record<string, { command: string; args: string[] }> = {
+    vscode: {
+      command:
+        "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+      args: ["-g", target],
+    },
+    cursor: {
+      command: "/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
+      args: ["-g", target],
+    },
+    zed: {
+      command: "/Applications/Zed.app/Contents/MacOS/zed",
+      args: [target],
+    },
+    sublime: {
+      command:
+        "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl",
+      args: [target],
+    },
+  };
+  const configured = process.env.INKFRAME_EDITOR || process.env.MDPDF_EDITOR;
+  const selected = configured
+    ? { command: configured, args: ["-g", target] }
+    : commands[editor];
+  if (selected) {
+    try {
+      await execFileAsync(selected.command, selected.args);
+      return { ok: true, method: editor };
+    } catch {}
+  }
   const error = await shell.openPath(path);
   return error
     ? { ok: false, message: `エディタで開けませんでした: ${error}` }
     : { ok: true, method: "system" };
+}
+async function editors(): Promise<EditorInfo[]> {
+  const candidates = [
+    {
+      id: "vscode",
+      name: "Visual Studio Code",
+      path: "/Applications/Visual Studio Code.app",
+    },
+    { id: "cursor", name: "Cursor", path: "/Applications/Cursor.app" },
+    { id: "zed", name: "Zed", path: "/Applications/Zed.app" },
+    {
+      id: "sublime",
+      name: "Sublime Text",
+      path: "/Applications/Sublime Text.app",
+    },
+  ];
+  const available: EditorInfo[] = [
+    { id: "system", name: "System default" },
+  ];
+  for (const candidate of candidates) {
+    try {
+      await stat(candidate.path);
+      const icon = await app.getFileIcon(candidate.path, { size: "small" });
+      available.push({
+        id: candidate.id,
+        name: candidate.name,
+        icon: icon.isEmpty() ? undefined : icon.toDataURL(),
+      });
+    } catch {}
+  }
+  return available;
 }
 function watchDocument(path?: string): void {
   activeWatcher?.close();
@@ -413,8 +476,8 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle(
     "editor:open",
-    (_event, path: string, line?: number, column?: number) =>
-      openEditor(path, line, column),
+    (_event, path: string, line?: number, column?: number, editor?: string) =>
+      openEditor(path, line, column, editor),
   );
   ipcMain.handle("file:reveal", (_event, path: string) => {
     shell.showItemInFolder(path);
@@ -424,16 +487,22 @@ app.whenReady().then(async () => {
     clipboard.writeText(value),
   );
   ipcMain.handle("fonts:list", listFonts);
+  ipcMain.handle("editors:list", editors);
   ipcMain.handle("themes:list", () => listThemes(customThemesPath()));
   ipcMain.handle("history:list", history);
   ipcMain.handle(
     "themes:create",
-    async (_event, name: string, sourceTheme?: string) =>
-      createCustomTheme(name, sourceTheme),
+    async (
+      _event,
+      name: string,
+      sourceTheme?: string,
+      defaults?: ConvertOptions,
+    ) => createCustomTheme(name, sourceTheme, defaults),
   );
-  ipcMain.handle("themes:edit", async (_event, cssPath: string) =>
-    openEditor(cssPath),
-  );
+  ipcMain.handle("themes:edit", async (_event, cssPath: string) => {
+    const settings = await appSettings();
+    return openEditor(cssPath, 1, 1, settings.editor);
+  });
   ipcMain.handle("themes:delete", async (_event, cssPath: string) => {
     const directory = dirname(cssPath);
     if (dirname(directory) !== customThemesPath())
@@ -470,7 +539,11 @@ app.whenReady().then(async () => {
     if (result.canceled || !result.filePaths[0]) return undefined;
     const source = result.filePaths[0];
     const raw = await readFile(source, "utf8");
-    let metadata: { name: string; description?: string };
+    let metadata: {
+      name: string;
+      description?: string;
+      defaults?: ConvertOptions;
+    };
     let css: string;
     if (extname(source).toLowerCase() === ".css") {
       metadata = {
@@ -481,7 +554,11 @@ app.whenReady().then(async () => {
     } else {
       const bundle = JSON.parse(raw) as {
         format?: string;
-        metadata?: { name?: string; description?: string };
+        metadata?: {
+          name?: string;
+          description?: string;
+          defaults?: ConvertOptions;
+        };
         css?: string;
       };
       if (bundle.format !== "inkframe-theme" || typeof bundle.css !== "string")
@@ -489,6 +566,7 @@ app.whenReady().then(async () => {
       metadata = {
         name: bundle.metadata?.name || basename(source, ".json"),
         description: bundle.metadata?.description,
+        defaults: bundle.metadata?.defaults,
       };
       css = bundle.css;
     }
@@ -518,11 +596,18 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle(
     "settings:set-default-options",
-    async (_event, defaultOptions: ConvertOptions) => {
+    async (
+      _event,
+      defaultOptions: ConvertOptions,
+      preferences?: Pick<AppSettings, "language" | "editor">,
+    ) => {
       const settings = await appSettings();
       settings.defaultOptions = defaultOptions;
       settings.defaultTheme = defaultOptions.theme ?? settings.defaultTheme;
+      settings.language = preferences?.language ?? settings.language;
+      settings.editor = preferences?.editor ?? settings.editor;
       await writeAppSettings(settings);
+      await installApplicationMenu();
       return settings;
     },
   );
@@ -629,6 +714,8 @@ function sendMenuAction(action: string, value?: unknown): void {
 async function installApplicationMenu(): Promise<void> {
   const recent = await history();
   const themes = await listThemes(customThemesPath());
+  const preferences = await appSettings();
+  const japanese = preferences.language === "ja";
   const template: MenuItemConstructorOptions[] = [
     ...(process.platform === "darwin"
       ? [
@@ -692,7 +779,7 @@ async function installApplicationMenu(): Promise<void> {
         },
         { type: "separator" },
         {
-          label: "外部エディタで開く",
+          label: japanese ? "エディターで開く" : "Open in Editor",
           accelerator: "Alt+CommandOrControl+O",
           click: () => sendMenuAction("open-editor"),
         },
@@ -852,6 +939,63 @@ async function installApplicationMenu(): Promise<void> {
       ],
     },
   ];
+  if (!japanese) {
+    const labels = new Map([
+      ["Inkframe について", "About Inkframe"],
+      ["アップデートを確認…", "Check for Updates…"],
+      ["設定…", "Settings…"],
+      ["ファイル", "File"],
+      ["新しいタブ", "New Tab"],
+      ["Markdown を開く…", "Open Markdown…"],
+      ["最近使った項目", "Open Recent"],
+      ["最近使った項目はありません", "No Recent Documents"],
+      ["PDF を書き出す…", "Export PDF…"],
+      ["Finder に表示", "Show in Finder"],
+      ["ウインドウを閉じる", "Close Window"],
+      ["編集", "Edit"],
+      ["取り消す", "Undo"],
+      ["やり直す", "Redo"],
+      ["カット", "Cut"],
+      ["コピー", "Copy"],
+      ["ペースト", "Paste"],
+      ["すべて選択", "Select All"],
+      ["表示", "View"],
+      ["拡大", "Zoom In"],
+      ["縮小", "Zoom Out"],
+      ["実際のサイズ", "Actual Size"],
+      ["横幅に合わせる", "Fit Width"],
+      ["フルスクリーン", "Toggle Full Screen"],
+      ["文書", "Document"],
+      ["目次を有効化", "Enable Table of Contents"],
+      ["表紙を有効化", "Enable Cover"],
+      ["ページ番号を有効化", "Enable Page Numbers"],
+      ["文書設定を開く…", "Document Settings…"],
+      ["テーマ", "Theme"],
+      ["テーマを選択", "Choose Theme"],
+      ["新しいテーマ…", "New Theme…"],
+      ["テーマを読み込む…", "Import Theme…"],
+      ["現在のテーマを書き出す…", "Export Current Theme…"],
+      ["現在のテーマを編集", "Edit Current Theme"],
+      ["テーマを管理…", "Manage Themes…"],
+      ["ウインドウ", "Window"],
+      ["しまう", "Minimize"],
+      ["拡大／縮小", "Zoom"],
+      ["次のタブを表示", "Show Next Tab"],
+      ["前のタブを表示", "Show Previous Tab"],
+      ["すべてのタブを表示", "Show All Tabs"],
+      ["すべてを手前に移動", "Bring All to Front"],
+      ["ヘルプ", "Help"],
+      ["Inkframe ヘルプ", "Inkframe Help"],
+      ["Markdown 記法リファレンス", "Markdown Reference"],
+    ]);
+    const translate = (items: MenuItemConstructorOptions[]): void => {
+      for (const item of items) {
+        if (item.label) item.label = labels.get(item.label) ?? item.label;
+        if (Array.isArray(item.submenu)) translate(item.submenu);
+      }
+    };
+    translate(template);
+  }
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 

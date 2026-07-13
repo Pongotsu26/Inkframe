@@ -13,9 +13,10 @@ contextBridge.exposeInMainWorld("mdpdf", {
   generatePdf: (content, path, options) =>
     ipcRenderer.invoke("pdf:generate", content, path, options),
   fonts: () => ipcRenderer.invoke("fonts:list"),
+  editors: () => ipcRenderer.invoke("editors:list"),
   themes: () => ipcRenderer.invoke("themes:list"),
-  createTheme: (name, sourceTheme) =>
-    ipcRenderer.invoke("themes:create", name, sourceTheme),
+  createTheme: (name, sourceTheme, defaults) =>
+    ipcRenderer.invoke("themes:create", name, sourceTheme, defaults),
   editTheme: (cssPath) => ipcRenderer.invoke("themes:edit", cssPath),
   deleteTheme: (cssPath) => ipcRenderer.invoke("themes:delete", cssPath),
   importTheme: () => ipcRenderer.invoke("themes:import"),
@@ -23,16 +24,16 @@ contextBridge.exposeInMainWorld("mdpdf", {
   settings: () => ipcRenderer.invoke("settings:get"),
   setDefaultTheme: (theme) =>
     ipcRenderer.invoke("settings:set-default-theme", theme),
-  setDefaultOptions: (options) =>
-    ipcRenderer.invoke("settings:set-default-options", options),
+  setDefaultOptions: (options, preferences) =>
+    ipcRenderer.invoke("settings:set-default-options", options, preferences),
   history: () => ipcRenderer.invoke("history:list"),
   templates: () => ipcRenderer.invoke("templates:list"),
   saveTemplate: (name, options) =>
     ipcRenderer.invoke("templates:save", name, options),
   deleteTemplate: (id) => ipcRenderer.invoke("templates:delete", id),
   settingsHistory: () => ipcRenderer.invoke("settings-history:list"),
-  openEditor: (path, line, column) =>
-    ipcRenderer.invoke("editor:open", path, line, column),
+  openEditor: (path, line, column, editor) =>
+    ipcRenderer.invoke("editor:open", path, line, column, editor),
   reveal: (path) => ipcRenderer.invoke("file:reveal", path),
   openPath: (path) => ipcRenderer.invoke("file:open", path),
   copy: (value) => ipcRenderer.invoke("clipboard:write", value),

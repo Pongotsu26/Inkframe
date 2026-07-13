@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
+import type { MdpdfConfig } from "./types.js";
 
 export interface ThemeInfo {
   id: string;
@@ -9,6 +10,7 @@ export interface ThemeInfo {
   orientation?: "portrait" | "landscape";
   custom?: boolean;
   cssPath?: string;
+  defaults?: MdpdfConfig;
 }
 
 async function themesIn(
@@ -35,6 +37,7 @@ async function themesIn(
             description: metadata.description ?? "",
             paper: metadata.paper,
             orientation: metadata.orientation,
+            defaults: metadata.defaults,
             custom,
             cssPath: custom
               ? join(directory, entry.name, "theme.css")

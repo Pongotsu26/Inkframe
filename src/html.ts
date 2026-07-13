@@ -44,6 +44,36 @@ export interface HtmlDocument {
   mermaidScriptPath: string;
 }
 
+interface MarkdownNode {
+  type?: string;
+  value?: string;
+  children?: MarkdownNode[];
+}
+
+/** Turn Markdown soft line endings into explicit break nodes. */
+export function softLineBreaks() {
+  return (tree: MarkdownNode): void => {
+    const visit = (node: MarkdownNode): void => {
+      if (!node.children) return;
+      const children: MarkdownNode[] = [];
+      for (const child of node.children) {
+        if (child.type === "text" && child.value?.includes("\n")) {
+          const parts = child.value.split("\n");
+          parts.forEach((part, index) => {
+            if (index > 0) children.push({ type: "break" });
+            if (part) children.push({ type: "text", value: part });
+          });
+        } else {
+          visit(child);
+          children.push(child);
+        }
+      }
+      node.children = children;
+    };
+    visit(tree);
+  };
+}
+
 function textValue(value: unknown): string {
   return value instanceof Date
     ? value.toISOString().slice(0, 10)
@@ -283,6 +313,7 @@ export async function markdownToHtml(
       .replace(/^\[\[toc\]\]$/im, '<div id="mdpdf-toc"></div>'),
   );
   const processor = unified().use(remarkParse).use(remarkGfm);
+  if (options.lineBreaks) processor.use(softLineBreaks);
   if (options.math !== false) processor.use(remarkMath);
   processor.use(remarkRehype, { allowDangerousHtml: true });
   if (options.math !== false) processor.use(rehypeKatex);

@@ -7,3 +7,5 @@ docs/
 *.pdf
 playwright-report/
 test-results/
+output/
+tmp/**/*-output/

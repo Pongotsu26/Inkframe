@@ -155,6 +155,25 @@ describe("extended Markdown", () => {
     expect(document.html).toContain("$x^2$");
   });
 
+  it("Markdown内の改行を設定に応じてbr要素へ変換する", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mdpdf-breaks-"));
+    const input = join(directory, "breaks.md");
+    await writeFile(input, "1行目\n2行目");
+
+    const withoutBreaks = await markdownToHtml(input, {
+      theme: "github",
+      lineBreaks: false,
+    });
+    const withBreaks = await markdownToHtml(input, {
+      theme: "github",
+      lineBreaks: true,
+    });
+
+    expect(withoutBreaks.html).toContain("<p>1行目\n2行目</p>");
+    expect(withoutBreaks.html).not.toContain("<br>");
+    expect(withBreaks.html).toContain("<p>1行目<br>\n2行目</p>");
+  });
+
   it("コードハイライトテーマを指定できる", async () => {
     const directory = await mkdtemp(join(tmpdir(), "mdpdf-html-"));
     const input = join(directory, "code-theme.md");
