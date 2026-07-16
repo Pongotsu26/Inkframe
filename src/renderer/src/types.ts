@@ -35,14 +35,7 @@ export interface ExportResult {
   pageCount?: number;
 }
 export interface PreviewHtml {
-  html: string;
-  mermaidScriptUrl: string;
-  paper: string;
-  orientation: "portrait" | "landscape";
-  margin: string;
-  pageNumber: boolean;
-  pageNumberFormat: "current" | "current-total";
-  pageNumberFont?: string;
+  pdfData: string;
 }
 export interface Inspection {
   outline: Array<{ level: number; text: string; line: number }>;

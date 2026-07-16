@@ -1,10 +1,12 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { PDFDocument } from "pdf-lib";
 import {
   footerTemplate,
   markdownFilesIn,
+  normalizePdfPageSize,
   paper,
   resolvedConfig,
 } from "../src/renderer.js";
@@ -46,5 +48,20 @@ describe("Phase 2 renderer utilities", () => {
     expect(currentTotal).toContain(
       '<span class="pageNumber"></span>/<span class="totalPages"></span>',
     );
+  });
+
+  it("PDFのMediaBoxを正確なA4寸法へ正規化する", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "mdpdf-page-size-"));
+    const output = join(directory, "a4.pdf");
+    const source = await PDFDocument.create();
+    source.addPage([594.96, 841.92]);
+    await writeFile(output, await source.save());
+
+    await normalizePdfPageSize(output, "A4");
+
+    const normalized = await PDFDocument.load(await readFile(output));
+    const size = normalized.getPage(0).getSize();
+    expect(size.width).toBeCloseTo((210 / 25.4) * 72, 10);
+    expect(size.height).toBeCloseTo((297 / 25.4) * 72, 10);
   });
 });

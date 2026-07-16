@@ -1,12 +1,22 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import matter from "gray-matter";
+import { PDFDocument } from "pdf-lib";
 import { chromium } from "playwright";
 import { findConfig, mergeConfig } from "./config.js";
 import { markdownToHtml } from "./html.js";
+import { pageDimensionsPoints, pageSizeCss } from "./page-size.js";
 import { DEFAULT_CODE_THEME, type MdpdfConfig, type Paper } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -60,8 +70,21 @@ export function footerTemplate(
 }
 
 async function readFrontmatter(inputPath: string): Promise<MdpdfConfig> {
-  const { readFile } = await import("node:fs/promises");
   return matter(await readFile(inputPath, "utf8")).data as MdpdfConfig;
+}
+
+export async function normalizePdfPageSize(
+  path: string,
+  paper: Paper,
+  orientation: "portrait" | "landscape" = "portrait",
+): Promise<void> {
+  const pdf = await PDFDocument.load(await readFile(path));
+  const target = pageDimensionsPoints(paper, orientation);
+  for (const page of pdf.getPages()) {
+    const current = page.getSize();
+    page.scale(target.width / current.width, target.height / current.height);
+  }
+  await writeFile(path, await pdf.save());
 }
 
 export async function resolvedConfig(
@@ -148,6 +171,10 @@ export async function convertMarkdown(
   );
   const settings = await resolvedConfig(inputPath, options);
   const document = await markdownToHtml(inputPath, settings);
+  const pageSize = pageSizeCss(
+    settings.paper ?? "A4",
+    settings.orientation ?? "portrait",
+  );
   await mkdir(dirname(outputPath), { recursive: true });
 
   let browser;
@@ -167,7 +194,11 @@ export async function convertMarkdown(
           : route.abort(),
       );
     }
-    await page.setContent(document.html, { waitUntil: "load" });
+    const printDocument = document.html.replace(
+      "</head>",
+      `<style id="inkframe-print-page-size">@page { size: ${pageSize}; }</style></head>`,
+    );
+    await page.setContent(printDocument, { waitUntil: "load" });
     if (
       settings.mermaid !== false &&
       document.html.includes('class="mermaid"')
@@ -190,12 +221,11 @@ export async function convertMarkdown(
         await mermaid.run();
       });
     }
+    await page.evaluate(() => window.document.fonts.ready);
     await page.pdf({
       path: outputPath,
-      format: settings.paper ?? "A4",
-      landscape: settings.orientation === "landscape",
       printBackground: true,
-      preferCSSPageSize: false,
+      preferCSSPageSize: true,
       margin: margins(settings.margin ?? "18mm"),
       displayHeaderFooter: Boolean(
         settings.pageNumber || settings.header || settings.footer,
@@ -224,6 +254,11 @@ export async function convertMarkdown(
     await cp(temporary, outputPath);
     await rm(temporary, { force: true });
   }
+  await normalizePdfPageSize(
+    outputPath,
+    settings.paper ?? "A4",
+    settings.orientation ?? "portrait",
+  );
   return outputPath;
 }
 

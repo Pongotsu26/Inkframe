@@ -17,7 +17,6 @@ import {
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import {
@@ -34,12 +33,7 @@ import {
 import matter from "gray-matter";
 import { listFonts } from "../fonts.js";
 import { inspectMarkdown } from "../markdown-inspection.js";
-import { markdownToHtml } from "../html.js";
-import {
-  convertMarkdown,
-  resolvedConfig,
-  type ConvertOptions,
-} from "../renderer.js";
+import { convertMarkdown, type ConvertOptions } from "../renderer.js";
 import { listThemes, themeCssPath, type ThemeInfo } from "../themes.js";
 
 interface HistoryItem {
@@ -509,6 +503,7 @@ async function renderHtmlPreview(
   options: ConvertOptions,
 ) {
   const inputPath = previewPath(activePath);
+  const outputPath = `${inputPath}.pdf`;
   try {
     await writeFile(inputPath, content, "utf8");
     const frontmatter = matter(content).data as { title?: string };
@@ -516,21 +511,16 @@ async function renderHtmlPreview(
       !options.title && !frontmatter.title && activePath
         ? { ...options, title: basename(activePath) }
         : options;
-    const settings = await resolvedConfig(inputPath, previewOptions);
-    const document = await markdownToHtml(inputPath, settings);
+    await convertMarkdown(inputPath, {
+      ...previewOptions,
+      output: outputPath,
+    });
     return {
-      html: document.html,
-      mermaidScriptUrl: pathToFileURL(document.mermaidScriptPath).href,
-      paper: settings.paper ?? "A4",
-      orientation: settings.orientation ?? "portrait",
-      margin: settings.margin ?? "18mm",
-      pageNumber: Boolean(settings.pageNumber),
-      pageNumberFormat: settings.pageNumberFormat ?? "current-total",
-      pageNumberFont:
-        settings.pageNumberFont?.face ?? settings.pageNumberFont?.family,
+      pdfData: (await readFile(outputPath)).toString("base64"),
     };
   } finally {
     await rm(inputPath, { force: true });
+    await rm(outputPath, { force: true });
   }
 }
 

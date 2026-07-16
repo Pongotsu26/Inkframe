@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import pagedPolyfillSource from "virtual:pagedjs-polyfill";
+import { GlobalWorkerOptions, getDocument, OPS } from "pdfjs-dist";
+import type { PDFPageProxy } from "pdfjs-dist";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { pageSizeCss } from "../../page-size";
+import { SVGGraphics } from "./pdf-svg-graphics.js";
 import type {
   AppSettings,
   ConvertOptions,
@@ -12,7 +24,11 @@ import type {
   PreviewHtml,
   Theme,
 } from "./types";
-
+import {
+  PREVIEW_PAGINATION_SCRIPT,
+  PREVIEW_PAGINATION_STYLES,
+} from "./preview-pagination";
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 const PAGED_POLYFILL_URL = URL.createObjectURL(
   new Blob([pagedPolyfillSource], { type: "text/javascript" }),
 );
@@ -37,7 +53,10 @@ const ENGLISH_UI = new Map<string, string>([
   ["Markdownファイルを開く", "Open Markdown File"],
   ["フォルダを開く", "Open Folder"],
   ["Markdownをここにドロップ", "Drop Markdown here"],
-  ["Markdownを、読みやすく美しいPDFへ仕上げるローカル組版スタジオ。", "A local typesetting studio for polished, readable PDFs."],
+  [
+    "Markdownを、読みやすく美しいPDFへ仕上げるローカル組版スタジオ。",
+    "A local typesetting studio for polished, readable PDFs.",
+  ],
   ["最近の文書", "Recent Documents"],
   ["テーマを追加", "Add Theme"],
   ["読み込む", "Import"],
@@ -86,7 +105,10 @@ const ENGLISH_UI = new Map<string, string>([
   ["ページ番号", "Page Numbers"],
   ["形式", "Format"],
   ["ローカルフォント", "Local Fonts"],
-  ["端末にインストール済みのフォントを使用", "Use fonts installed on this computer"],
+  [
+    "端末にインストール済みのフォントを使用",
+    "Use fonts installed on this computer",
+  ],
   ["本文", "Body"],
   ["見出し", "Headings"],
   ["フォントサイズ", "Font Size"],
@@ -100,7 +122,10 @@ const ENGLISH_UI = new Map<string, string>([
   ["PDFを開く", "Open PDF"],
   ["パスをコピー", "Copy Path"],
   ["規定の書式設定", "Default Formatting"],
-  ["新しい文書で使用する組版の初期値を設定します。", "Set the initial layout for new documents."],
+  [
+    "新しい文書で使用する組版の初期値を設定します。",
+    "Set the initial layout for new documents.",
+  ],
   ["初期値に戻す", "Reset to Defaults"],
   ["キャンセル", "Cancel"],
   ["保存", "Save"],
@@ -133,24 +158,54 @@ const ENGLISH_UI = new Map<string, string>([
   ["あいうえお ABC 123", "Sample Text ABC 123"],
   ["見出しサンプル Heading", "Heading Sample"],
   ["電子書籍", "E-book"],
-  ["A5 判の読み物に適した電子書籍テーマ", "An e-book theme for readable A5 publications"],
-  ["GitHub README に近い読みやすい技術文書テーマ", "A readable technical-document theme inspired by GitHub README"],
+  [
+    "A5 判の読み物に適した電子書籍テーマ",
+    "An e-book theme for readable A5 publications",
+  ],
+  [
+    "GitHub README に近い読みやすい技術文書テーマ",
+    "A readable technical-document theme inspired by GitHub README",
+  ],
   ["議事録", "Meeting Minutes"],
-  ["会議記録を整理して読みやすく出力するテーマ", "A clear, organized theme for meeting records"],
+  [
+    "会議記録を整理して読みやすく出力するテーマ",
+    "A clear, organized theme for meeting records",
+  ],
   ["シンプル白黒", "Simple Monochrome"],
-  ["印刷に適した白黒のミニマルテーマ", "A minimal monochrome theme optimized for printing"],
-  ["論文・研究レポート向けの端正なテーマ", "A refined theme for papers and research reports"],
+  [
+    "印刷に適した白黒のミニマルテーマ",
+    "A minimal monochrome theme optimized for printing",
+  ],
+  [
+    "論文・研究レポート向けの端正なテーマ",
+    "A refined theme for papers and research reports",
+  ],
   ["論文", "Academic Paper"],
   ["履歴書・職務経歴書", "Resume / CV"],
-  ["経歴書を整然と出力するビジネス向けテーマ", "A structured business theme for resumes and CVs"],
+  [
+    "経歴書を整然と出力するビジネス向けテーマ",
+    "A structured business theme for resumes and CVs",
+  ],
   ["プレゼン資料", "Presentation"],
-  ["横長ページで要点を伝えるプレゼンテーションテーマ", "A landscape presentation theme for communicating key points"],
+  [
+    "横長ページで要点を伝えるプレゼンテーションテーマ",
+    "A landscape presentation theme for communicating key points",
+  ],
   ["技術書", "Technical Book"],
-  ["技術文書・設計書向けの読みやすいテーマ", "A readable theme for technical and design documents"],
+  [
+    "技術文書・設計書向けの読みやすいテーマ",
+    "A readable theme for technical and design documents",
+  ],
   ["大学レポート", "University Report"],
-  ["日本語の大学提出レポート向けの端正なテーマ", "A refined theme for university reports"],
+  [
+    "日本語の大学提出レポート向けの端正なテーマ",
+    "A refined theme for university reports",
+  ],
   ["日本語縦書き", "Vertical Japanese"],
-  ["縦書きの日本語文書を出力するテーマ", "A theme for vertical Japanese documents"],
+  [
+    "縦書きの日本語文書を出力するテーマ",
+    "A theme for vertical Japanese documents",
+  ],
   ["フォント", "Fonts"],
   ["表紙", "Cover"],
   ["テーマ", "Theme"],
@@ -159,12 +214,24 @@ const ENGLISH_UI = new Map<string, string>([
   ["Pages ·", " pages ·"],
   ["マイテーマ", "My Theme"],
   ["TODO が残っています", "TODO remains in the document"],
-  ["見出し記号の後に空白が必要です", "A space is required after the heading marker"],
+  [
+    "見出し記号の後に空白が必要です",
+    "A space is required after the heading marker",
+  ],
   ["設定ファイルを読み込めません", "Could not read the configuration file"],
   ["テーマが見つかりません", "Theme not found"],
-  ["フォント一覧を取得できません。OS のフォント管理コマンドを確認してください", "Could not retrieve the font list. Check the operating system's font-management command"],
-  ["余白は CSS と同じ形式で 1〜4 個の値を指定してください（例: 20mm 18mm）", "Specify one to four margin values using CSS syntax (for example: 20mm 18mm)"],
-  ["Ghostscript を実行できません。PDF の結合・圧縮には Ghostscript をインストールしてください。", "Could not run Ghostscript. Install Ghostscript to merge or compress PDFs."],
+  [
+    "フォント一覧を取得できません。OS のフォント管理コマンドを確認してください",
+    "Could not retrieve the font list. Check the operating system's font-management command",
+  ],
+  [
+    "余白は CSS と同じ形式で 1〜4 個の値を指定してください（例: 20mm 18mm）",
+    "Specify one to four margin values using CSS syntax (for example: 20mm 18mm)",
+  ],
+  [
+    "Ghostscript を実行できません。PDF の結合・圧縮には Ghostscript をインストールしてください。",
+    "Could not run Ghostscript. Install Ghostscript to merge or compress PDFs.",
+  ],
   ["Chromium を起動できません。", "Could not start Chromium."],
   ["を実行してください。", "Please run it."],
 ]);
@@ -676,33 +743,33 @@ function LeftSidebar({
                 const id = duplicateIndex ? `${base}-${duplicateIndex}` : base;
                 const itemKey = `${item.line}-${item.text}`;
                 return (
-                <button
-                  className={`tree-item ${commandPressed ? "open-in-editor" : ""}`}
-                  style={{ paddingLeft: 12 + (item.level - 1) * 14 }}
-                  onClick={(event) =>
-                    event.metaKey
-                      ? onOpenLine(item.line)
-                      : onPreviewHeading(id)
-                  }
-                  title={
-                    commandPressed
-                      ? language === "ja"
-                        ? "エディターで開く"
-                        : "Open in Editor"
-                      : language === "ja"
-                        ? "プレビューへ移動"
-                        : "Jump in Preview"
-                  }
-                  key={itemKey}
-                >
-                  <span className="hash">H{item.level}</span>
-                  <span className="tree-item-text">{item.text}</span>
-                  {commandPressed && (
-                    <span className="editor-action-hint" aria-hidden="true">
-                      {language === "ja" ? "エディター ↗" : "Editor ↗"}
-                    </span>
-                  )}
-                </button>
+                  <button
+                    className={`tree-item ${commandPressed ? "open-in-editor" : ""}`}
+                    style={{ paddingLeft: 12 + (item.level - 1) * 14 }}
+                    onClick={(event) =>
+                      event.metaKey
+                        ? onOpenLine(item.line)
+                        : onPreviewHeading(id)
+                    }
+                    title={
+                      commandPressed
+                        ? language === "ja"
+                          ? "エディターで開く"
+                          : "Open in Editor"
+                        : language === "ja"
+                          ? "プレビューへ移動"
+                          : "Jump in Preview"
+                    }
+                    key={itemKey}
+                  >
+                    <span className="hash">H{item.level}</span>
+                    <span className="tree-item-text">{item.text}</span>
+                    {commandPressed && (
+                      <span className="editor-action-hint" aria-hidden="true">
+                        {language === "ja" ? "エディター ↗" : "Editor ↗"}
+                      </span>
+                    )}
+                  </button>
                 );
               })
             ) : (
@@ -793,7 +860,7 @@ function Empty({ label, success }: { label: string; success?: boolean }) {
 }
 
 function previewDocument(
-  preview: PreviewHtml,
+  preview: any,
   scrollX: number,
   scrollY: number,
   zoom: number,
@@ -806,8 +873,9 @@ function previewDocument(
   const pageNumberRule = preview.pageNumber
     ? `@bottom-center { content: ${pageNumberContent}; color: #666; font-family: ${JSON.stringify(preview.pageNumberFont || "sans-serif")}; font-size: 8pt; }`
     : "";
+  const pageSize = pageSizeCss(preview.paper, preview.orientation);
   const support = `<style id="inkframe-preview-style">
-@page { size: ${preview.paper} ${preview.orientation}; margin: ${preview.margin}; ${pageNumberRule} }
+@page { size: ${pageSize}; margin: ${preview.margin}; ${pageNumberRule} }
 html { visibility: hidden; background: #e8e8e8; } body { margin: 0; background: #e8e8e8; }
 .pagebreak { break-before: page !important; break-after: auto !important; page-break-before: always !important; page-break-after: auto !important; }
 pre, pre.shiki {
@@ -817,14 +885,13 @@ pre, pre.shiki {
   overflow-wrap: anywhere;
   break-inside: auto !important;
   page-break-inside: auto !important;
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
   orphans: 1;
   widows: 1;
 }
 pre code, pre.shiki code { white-space: inherit; overflow-wrap: inherit; }
+${PREVIEW_PAGINATION_STYLES}
 .pagedjs_pages { box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 28px; min-width: 100%; padding: 34px 24px 80px; width: max-content; }
-.pagedjs_page { flex: none; margin: 0 !important; background: white; box-shadow: 0 2px 12px rgba(0,0,0,.18); }
+.pagedjs_page { flex: none; margin: 0 !important; background: white; box-shadow: 0 2px 12px rgba(0,0,0,.18); transform-origin: top center; }
 </style><script>
 (() => {
   let zoom = ${JSON.stringify(zoom)};
@@ -847,7 +914,17 @@ pre code, pre.shiki code { white-space: inherit; overflow-wrap: inherit; }
     const before = pages.getBoundingClientRect();
     const relativeX = before.width ? (clientX - before.left) / before.width : .5;
     const relativeY = before.height ? (clientY - before.top) / before.height : .5;
-    pages.style.zoom = String(zoom / 100);
+    const scale = zoom / 100;
+    const pageElements = [...pages.querySelectorAll('.pagedjs_page')];
+    const firstPage = pageElements[0];
+    const style = getComputedStyle(pages);
+    const horizontalPadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    const scaledPageWidth = (firstPage?.offsetWidth || 0) * scale + horizontalPadding;
+    pages.style.minWidth = Math.max(document.documentElement.clientWidth, scaledPageWidth) + 'px';
+    pageElements.forEach(page => {
+      page.style.transform = 'scale(' + scale + ')';
+      page.style.setProperty('margin-bottom', (page.offsetHeight * (scale - 1)) + 'px', 'important');
+    });
     requestAnimationFrame(() => {
       const after = pages.getBoundingClientRect();
       scrollBy(after.left + relativeX * after.width - clientX, after.top + relativeY * after.height - clientY);
@@ -873,6 +950,7 @@ pre code, pre.shiki code { white-space: inherit; overflow-wrap: inherit; }
   });
   window.PagedConfig = {
     before: async () => {
+      await document.fonts.ready;
       if (!document.querySelector('.mermaid') || !window.mermaid) return;
       window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral' });
       await window.mermaid.run();
@@ -892,11 +970,11 @@ pre code, pre.shiki code { white-space: inherit; overflow-wrap: inherit; }
   addEventListener('error', event => parent.postMessage({ type: 'inkframe:preview-error', message: event.message }, '*'));
   addEventListener('unhandledrejection', event => parent.postMessage({ type: 'inkframe:preview-error', message: String(event.reason) }, '*'));
 })();
-</script><script src="${preview.mermaidScriptUrl.replaceAll('"', "&quot;")}"></script><script src="${PAGED_POLYFILL_URL}"></script>`;
+</script><script src="${preview.mermaidScriptUrl.replaceAll('"', "&quot;")}"></script><script src="${PAGED_POLYFILL_URL}"></script><script>${PREVIEW_PAGINATION_SCRIPT}</script>`;
   return preview.html.replace("</head>", `${support}</head>`);
 }
 
-function PdfPreviewPane({
+function HtmlPreviewPane({
   preview,
   status,
   error,
@@ -1109,6 +1187,673 @@ function PdfPreviewPane({
   );
 }
 
+interface RenderedPdfPage {
+  page: PDFPageProxy;
+  width: number;
+  height: number;
+  links: Array<{
+    url: string;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }>;
+}
+
+function decodePdfData(value: string): Uint8Array {
+  const binary = window.atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+async function renderPdfPages(value: string): Promise<RenderedPdfPage[]> {
+  const loadingTask = getDocument({
+    data: decodePdfData(value),
+    fontExtraProperties: true,
+  });
+  const pdf = await loadingTask.promise;
+  const rendered: RenderedPdfPage[] = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 96 / 72 });
+    const annotations = await page.getAnnotations();
+    const links = annotations.flatMap((annotation) => {
+      if (annotation.subtype !== "Link" || !annotation.url || !annotation.rect)
+        return [];
+      const first = viewport.convertToViewportPoint(
+        annotation.rect[0],
+        annotation.rect[1],
+      );
+      const second = viewport.convertToViewportPoint(
+        annotation.rect[2],
+        annotation.rect[3],
+      );
+      const left = Math.min(first[0], second[0]);
+      const top = Math.min(first[1], second[1]);
+      return [
+        {
+          url: annotation.url,
+          left,
+          top,
+          width: Math.abs(second[0] - first[0]),
+          height: Math.abs(second[1] - first[1]),
+        },
+      ];
+    });
+    rendered.push({
+      page,
+      width: viewport.width,
+      height: viewport.height,
+      links,
+    });
+  }
+  return rendered;
+}
+
+function adaptOperatorListForSvg(operatorList: {
+  fnArray: number[];
+  argsArray: unknown[][];
+}) {
+  const fnArray: number[] = [];
+  const argsArray: unknown[][] = [];
+  for (let index = 0; index < operatorList.fnArray.length; index += 1) {
+    const operation = operatorList.fnArray[index];
+    const operationArguments = operatorList.argsArray[index];
+    if (operation !== OPS.constructPath) {
+      fnArray.push(operation);
+      if (
+        operation === OPS.setTextMatrix &&
+        operationArguments?.length === 1 &&
+        ArrayBuffer.isView(operationArguments[0])
+      ) {
+        argsArray.push(Array.from(operationArguments[0] as Float32Array));
+      } else if (
+        (operation === OPS.setFillRGBColor ||
+          operation === OPS.setStrokeRGBColor) &&
+        typeof operationArguments?.[0] === "string"
+      ) {
+        const color = operationArguments[0].slice(1);
+        argsArray.push([
+          Number.parseInt(color.slice(0, 2), 16),
+          Number.parseInt(color.slice(2, 4), 16),
+          Number.parseInt(color.slice(4, 6), 16),
+        ]);
+      } else {
+        argsArray.push(operationArguments);
+      }
+      continue;
+    }
+    const paintOperation = operationArguments[0] as number;
+    const packedPath = (operationArguments[1] as [ArrayLike<number>])[0];
+    const pathOperations: number[] = [];
+    const pathArguments: number[] = [];
+    let x = 0;
+    let y = 0;
+    for (let offset = 0; offset < packedPath.length; ) {
+      const pathOperation = packedPath[offset++];
+      if (pathOperation === 0 || pathOperation === 1) {
+        x = packedPath[offset++];
+        y = packedPath[offset++];
+        pathOperations.push(pathOperation === 0 ? OPS.moveTo : OPS.lineTo);
+        pathArguments.push(x, y);
+        continue;
+      }
+      if (pathOperation === 2) {
+        const values = Array.from(packedPath).slice(offset, offset + 6);
+        offset += 6;
+        x = values[4];
+        y = values[5];
+        pathOperations.push(OPS.curveTo);
+        pathArguments.push(...values);
+        continue;
+      }
+      if (pathOperation === 3) {
+        const controlX = packedPath[offset++];
+        const controlY = packedPath[offset++];
+        const endX = packedPath[offset++];
+        const endY = packedPath[offset++];
+        pathOperations.push(OPS.curveTo);
+        pathArguments.push(
+          x + ((controlX - x) * 2) / 3,
+          y + ((controlY - y) * 2) / 3,
+          endX + ((controlX - endX) * 2) / 3,
+          endY + ((controlY - endY) * 2) / 3,
+          endX,
+          endY,
+        );
+        x = endX;
+        y = endY;
+        continue;
+      }
+      if (pathOperation === 4) {
+        pathOperations.push(OPS.closePath);
+        continue;
+      }
+      throw new Error("未対応のPDFパス命令です: " + pathOperation);
+    }
+    fnArray.push(OPS.constructPath, paintOperation);
+    argsArray.push([pathOperations, pathArguments], []);
+  }
+  return { fnArray, argsArray };
+}
+
+type PreviewFontOptions = Pick<
+  ConvertOptions,
+  "font" | "fontFace" | "fontSize"
+>;
+
+function nativeSvgFontFamily(
+  font: Record<string, unknown>,
+  options: PreviewFontOptions,
+  fontSize: number,
+): string {
+  const pdfName = String(font.name || font.fallbackName || "sans-serif")
+    .replace(/^[A-Z]{6}\+/, "")
+    .replace(
+      /-(?:Regular|Bold|SemiBold|DemiBold|Medium|Light|Thin|Black|Italic|Oblique).*$/i,
+      "",
+    );
+  const family = pdfName
+    .replace(/^BIZUDPGothic$/i, "BIZ UDPGothic")
+    .replace(/^BIZUDPMincho$/i, "BIZ UDPMincho");
+  const monospace = /(?:Mono|Menlo|Consolas|Courier|Code)/i.test(pdfName);
+  const heading = fontSize > (options.fontSize?.body ?? 10.5) * 1.1;
+  const selectedFace = monospace
+    ? options.fontFace?.code
+    : heading
+      ? options.fontFace?.heading || options.fontFace?.body
+      : options.fontFace?.body;
+  const selectedFamily = monospace
+    ? options.font?.code
+    : heading
+      ? options.font?.heading || options.font?.body
+      : options.font?.body;
+  const candidates = [selectedFace, selectedFamily, family]
+    .filter((candidate): candidate is string => Boolean(candidate))
+    .map((candidate) => `"${candidate.replaceAll('"', "")}"`);
+  return [
+    ...new Set(candidates),
+    '"Hiragino Sans"',
+    '"Yu Gothic"',
+    "sans-serif",
+  ].join(", ");
+}
+
+function nativeSvgFontWeight(font: Record<string, unknown>): string {
+  const name = String(font.name || "");
+  if (/-(?:Black|Heavy)/i.test(name)) return "900";
+  if (/-(?:ExtraBold|UltraBold)/i.test(name)) return "800";
+  if (/-(?:Bold)/i.test(name)) return "700";
+  if (/-(?:SemiBold|DemiBold)/i.test(name)) return "600";
+  if (/-(?:Medium)/i.test(name)) return "500";
+  if (/-(?:Light)/i.test(name)) return "300";
+  if (/-(?:Thin|ExtraLight|UltraLight)/i.test(name)) return "200";
+  return "normal";
+}
+
+const PdfSvgPage = memo(function PdfSvgPage({
+  renderedPage,
+  pageNumber,
+  fontOptions,
+}: {
+  renderedPage: RenderedPdfPage;
+  pageNumber: number;
+  fontOptions: PreviewFontOptions;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const renderedSource = useRef<{
+    page: PDFPageProxy;
+    fontOptions: PreviewFontOptions;
+  }>();
+  const [nearViewport, setNearViewport] = useState(false);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const scrollRoot = container?.parentElement?.parentElement;
+    if (!container || !scrollRoot) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setNearViewport(entry.isIntersecting),
+      {
+        root: scrollRoot,
+        rootMargin: "50% 0px",
+      },
+    );
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!nearViewport) return;
+    const container = containerRef.current;
+    if (!container) return;
+    if (
+      renderedSource.current?.page === renderedPage.page &&
+      renderedSource.current.fontOptions === fontOptions
+    )
+      return;
+    let cancelled = false;
+    const render = async () => {
+      const viewport = renderedPage.page.getViewport({
+        scale: 96 / 72,
+      });
+      const operatorList = await renderedPage.page.getOperatorList();
+      const graphics = new SVGGraphics(
+        renderedPage.page.commonObjs,
+        renderedPage.page.objs,
+        true,
+      );
+      graphics.embedFonts = false;
+      const showText = graphics.showText.bind(graphics);
+      graphics.showText = (glyphs: unknown[]) => {
+        const current = graphics.current as unknown as {
+          font?: Record<string, unknown> & { type?: string };
+          fontFamily: string;
+          fontStyle: string;
+          fontWeight: string;
+          fontSize: number;
+        };
+        if (current.font?.type === "Type3") {
+          current.fontFamily = nativeSvgFontFamily(
+            current.font,
+            fontOptions,
+            current.fontSize,
+          );
+          current.fontWeight = nativeSvgFontWeight(current.font);
+          current.fontStyle = /-(?:Italic|Oblique)/i.test(
+            String(current.font.name || ""),
+          )
+            ? "italic"
+            : "normal";
+          showText(
+            glyphs.map((glyph) =>
+              glyph && typeof glyph === "object"
+                ? {
+                    ...(glyph as Record<string, unknown>),
+                    fontChar:
+                      (glyph as { unicode?: string }).unicode ||
+                      (glyph as { fontChar?: string }).fontChar ||
+                      "",
+                    isInFont: true,
+                  }
+                : glyph,
+            ),
+          );
+          return;
+        }
+        showText(glyphs);
+      };
+      const svg = (await graphics.getSVG(
+        adaptOperatorListForSvg(operatorList),
+        viewport,
+      )) as unknown as SVGSVGElement;
+      if (cancelled || !containerRef.current) return;
+      container.querySelector(":scope > svg")?.remove();
+      container.prepend(svg);
+      renderedSource.current = { page: renderedPage.page, fontOptions };
+    };
+    void render().catch((caught) => {
+      if (!cancelled) console.error(caught);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fontOptions, nearViewport, renderedPage]);
+
+  return (
+    <div
+      className="pdf-preview-page"
+      data-page-number={pageNumber}
+      ref={containerRef}
+      style={{
+        width: renderedPage.width,
+        height: renderedPage.height,
+      }}
+    >
+      <span className="visually-hidden">{pageNumber}ページ</span>
+      {renderedPage.links.map((link) => (
+        <a
+          href={link.url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={link.url}
+          style={{
+            left: link.left,
+            top: link.top,
+            width: link.width,
+            height: link.height,
+          }}
+          key={link.url + "-" + link.left + "-" + link.top}
+        />
+      ))}
+    </div>
+  );
+});
+
+function PdfPreviewPane({
+  preview,
+  status,
+  error,
+  active,
+  fitOnFirstRender,
+  zoom,
+  onZoom,
+  initialScroll,
+  onScroll,
+  fontOptions,
+}: {
+  preview?: PreviewHtml;
+  status: string;
+  error?: string;
+  active: boolean;
+  fitOnFirstRender: boolean;
+  zoom: number;
+  onZoom: (zoom: number) => void;
+  initialScroll: { x: number; y: number };
+  onScroll: (position: { x: number; y: number }) => void;
+  fontOptions: PreviewFontOptions;
+}) {
+  const [pages, setPages] = useState<RenderedPdfPage[]>([]);
+  const [rendering, setRendering] = useState(false);
+  const [previewError, setPreviewError] = useState<string>();
+  const stageRef = useRef<HTMLDivElement>(null);
+  const pagesRef = useRef<HTMLDivElement>(null);
+  const renderId = useRef(0);
+  const needsInitialFit = useRef(fitOnFirstRender);
+  const trackpadZoom = useRef(zoom);
+  const trackpadFrame = useRef<number>();
+  const pendingTrackpadZoom = useRef<{
+    zoom: number;
+    pageNumber: string;
+    relativeX: number;
+    relativeY: number;
+    clientX: number;
+    clientY: number;
+  }>();
+  const trackpadGesture = useRef<{
+    pageNumber: string;
+    relativeX: number;
+    relativeY: number;
+    clientX: number;
+    clientY: number;
+  }>();
+  const trackpadGestureTimeout = useRef<number>();
+  const trackpadAnchor = useRef(pendingTrackpadZoom.current);
+  const horizontalPan = useRef(0);
+  const verticalPan = useRef(0);
+
+  useEffect(() => {
+    // Pinch input can run ahead of React renders. Reapplying a delayed zoom
+    // prop here would make the gesture alternate between old and new scales.
+    if (trackpadGesture.current) {
+      return;
+    }
+    trackpadZoom.current = zoom;
+  }, [zoom]);
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    const anchor = trackpadAnchor.current;
+    if (!stage || !anchor) return;
+    trackpadAnchor.current = undefined;
+    const anchoredPage = stage.querySelector<HTMLElement>(
+      `[data-page-number="${anchor.pageNumber}"]`,
+    );
+    if (!anchoredPage) return;
+    const updatedBounds = anchoredPage.getBoundingClientRect();
+    const updatedX =
+      updatedBounds.left + updatedBounds.width * anchor.relativeX;
+    const updatedY =
+      updatedBounds.top + updatedBounds.height * anchor.relativeY;
+    const requestedScrollX = updatedX - anchor.clientX;
+    const previousScrollLeft = stage.scrollLeft;
+    stage.scrollLeft += requestedScrollX;
+    const appliedScrollX = stage.scrollLeft - previousScrollLeft;
+    const remainingX = requestedScrollX - appliedScrollX;
+    horizontalPan.current -= remainingX;
+    const requestedScrollY = updatedY - anchor.clientY;
+    const previousScrollTop = stage.scrollTop;
+    stage.scrollTop += requestedScrollY;
+    const appliedScrollY = stage.scrollTop - previousScrollTop;
+    verticalPan.current -= requestedScrollY - appliedScrollY;
+    if (pagesRef.current)
+      pagesRef.current.style.transform = `translate(${horizontalPan.current}px, ${verticalPan.current}px)`;
+  }, [zoom]);
+
+  useEffect(
+    () => () => {
+      if (trackpadFrame.current)
+        window.cancelAnimationFrame(trackpadFrame.current);
+      if (trackpadGestureTimeout.current)
+        window.clearTimeout(trackpadGestureTimeout.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!preview) return;
+    trackpadGesture.current = undefined;
+    if (trackpadGestureTimeout.current)
+      window.clearTimeout(trackpadGestureTimeout.current);
+    horizontalPan.current = 0;
+    verticalPan.current = 0;
+    if (pagesRef.current) pagesRef.current.style.transform = "";
+    const id = ++renderId.current;
+    const stage = stageRef.current;
+    const scroll = stage
+      ? { x: stage.scrollLeft, y: stage.scrollTop }
+      : initialScroll;
+    setRendering(true);
+    setPreviewError(undefined);
+    void renderPdfPages(preview.pdfData)
+      .then((nextPages) => {
+        if (id !== renderId.current) {
+          return;
+        }
+        setPages(nextPages);
+        if (needsInitialFit.current && nextPages[0] && stageRef.current) {
+          const fitted = Math.floor(
+            (stageRef.current.clientWidth / (nextPages[0].width + 48)) * 100,
+          );
+          onZoom(Math.max(40, Math.min(MAX_PREVIEW_ZOOM, fitted)));
+          needsInitialFit.current = false;
+        }
+        window.requestAnimationFrame(() =>
+          stageRef.current?.scrollTo(scroll.x, scroll.y),
+        );
+      })
+      .catch((caught) => {
+        if (id === renderId.current)
+          setPreviewError(
+            caught instanceof Error ? caught.message : String(caught),
+          );
+      })
+      .finally(() => {
+        if (id === renderId.current) setRendering(false);
+      });
+  }, [preview]);
+
+  useEffect(() => () => void (renderId.current += 1), []);
+
+  const changeZoom = (value: number) => {
+    trackpadGesture.current = undefined;
+    if (trackpadGestureTimeout.current)
+      window.clearTimeout(trackpadGestureTimeout.current);
+    horizontalPan.current = 0;
+    verticalPan.current = 0;
+    if (pagesRef.current) pagesRef.current.style.transform = "";
+    const nextZoom = Math.max(
+      40,
+      Math.min(MAX_PREVIEW_ZOOM, Math.round(value)),
+    );
+    trackpadZoom.current = nextZoom;
+    onZoom(nextZoom);
+  };
+  const fitWidth = () => {
+    const stage = stageRef.current;
+    if (!stage || !pages[0]) return;
+    changeZoom((stage.clientWidth / (pages[0].width + 48)) * 100);
+  };
+  const handleTrackpadZoom = useCallback(
+    (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      const stage = stageRef.current;
+      if (!stage) return;
+      let gesture = trackpadGesture.current;
+      if (!gesture) {
+        const pageElements = Array.from(
+          stage.querySelectorAll<HTMLElement>(".pdf-preview-page"),
+        );
+        const eventTarget = event.target as Element;
+        const directPage =
+          eventTarget.closest<HTMLElement>(".pdf-preview-page");
+        const page =
+          directPage ??
+          pageElements.reduce<HTMLElement | undefined>((nearest, candidate) => {
+            if (!nearest) return candidate;
+            const candidateBounds = candidate.getBoundingClientRect();
+            const nearestBounds = nearest.getBoundingClientRect();
+            const candidateDistance = Math.abs(
+              event.clientY -
+                (candidateBounds.top + candidateBounds.bottom) / 2,
+            );
+            const nearestDistance = Math.abs(
+              event.clientY - (nearestBounds.top + nearestBounds.bottom) / 2,
+            );
+            return candidateDistance < nearestDistance ? candidate : nearest;
+          }, undefined);
+        if (!page?.dataset.pageNumber) return;
+        const pageBounds = page.getBoundingClientRect();
+        gesture = {
+          pageNumber: page.dataset.pageNumber,
+          relativeX: Math.max(
+            0,
+            Math.min(1, (event.clientX - pageBounds.left) / pageBounds.width),
+          ),
+          relativeY: Math.max(
+            0,
+            Math.min(1, (event.clientY - pageBounds.top) / pageBounds.height),
+          ),
+          clientX: event.clientX,
+          clientY: event.clientY,
+        };
+        trackpadGesture.current = gesture;
+      }
+      if (trackpadGestureTimeout.current)
+        window.clearTimeout(trackpadGestureTimeout.current);
+      trackpadGestureTimeout.current = window.setTimeout(() => {
+        trackpadGesture.current = undefined;
+        trackpadGestureTimeout.current = undefined;
+      }, 180);
+      let delta = event.deltaY;
+      if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 16;
+      if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE)
+        delta *= stage.clientHeight;
+      delta = Math.max(-40, Math.min(40, delta));
+      const nextZoom = Math.max(
+        40,
+        Math.min(
+          MAX_PREVIEW_ZOOM,
+          trackpadZoom.current * Math.exp(-delta / 200),
+        ),
+      );
+      trackpadZoom.current = nextZoom;
+      pendingTrackpadZoom.current = {
+        zoom: nextZoom,
+        ...gesture,
+      };
+      if (trackpadFrame.current) return;
+      trackpadFrame.current = window.requestAnimationFrame(() => {
+        trackpadFrame.current = undefined;
+        const pending = pendingTrackpadZoom.current;
+        if (!pending) return;
+        pendingTrackpadZoom.current = undefined;
+        trackpadAnchor.current = pending;
+        onZoom(pending.zoom);
+      });
+    },
+    [onZoom],
+  );
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    stage.addEventListener("wheel", handleTrackpadZoom, { passive: false });
+    return () => stage.removeEventListener("wheel", handleTrackpadZoom);
+  }, [handleTrackpadZoom]);
+
+  useEffect(() => {
+    const handleCommand = (event: Event) => {
+      if (!active) return;
+      const command = (event as CustomEvent<string>).detail;
+      if (command === "zoom-in") changeZoom(zoom + 10);
+      if (command === "zoom-out") changeZoom(zoom - 10);
+      if (command === "zoom-actual") changeZoom(100);
+      if (command === "zoom-fit") fitWidth();
+    };
+    window.addEventListener("inkframe:preview-command", handleCommand);
+    return () =>
+      window.removeEventListener("inkframe:preview-command", handleCommand);
+  }, [active, zoom, pages]);
+
+  const scale = zoom / 100;
+  return (
+    <main
+      className={`preview-pane ${active ? "active-document" : "inactive-document"}`}
+      aria-hidden={!active}
+    >
+      <div className="preview-toolbar">
+        <span>ページプレビュー</span>
+        <span>
+          {pages.length ? `${pages.length}ページ · ${status}` : status}
+        </span>
+      </div>
+      <div
+        className="html-preview-stage pdf-preview-stage"
+        ref={stageRef}
+        onScroll={(event) =>
+          onScroll({
+            x: event.currentTarget.scrollLeft,
+            y: event.currentTarget.scrollTop,
+          })
+        }
+      >
+        {(rendering || status === "レンダリング中") && (
+          <div className="rendering-banner">
+            <i /> PDFプレビューを描画しています
+          </div>
+        )}
+        {(error || previewError) && !pages.length ? (
+          <div className="preview-error">
+            <strong>プレビューを更新できませんでした</strong>
+            <span>{error || previewError}</span>
+          </div>
+        ) : (
+          <div
+            className="pdf-preview-pages"
+            ref={pagesRef}
+            style={{ zoom: scale }}
+          >
+            {pages.map((page, index) => (
+              <PdfSvgPage
+                renderedPage={page}
+                pageNumber={index + 1}
+                fontOptions={fontOptions}
+                key={index}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="zoom-controls">
+        <button onClick={() => changeZoom(zoom - 10)}>−</button>
+        <span>{Math.round(zoom)}%</span>
+        <button onClick={() => changeZoom(zoom + 10)}>＋</button>
+        <button onClick={fitWidth}>幅に合わせる</button>
+      </div>
+    </main>
+  );
+}
+
 function FontPicker({
   label,
   value,
@@ -1306,8 +2051,7 @@ function RightInspector({
                       update({
                         ...defaults,
                         theme: theme.id,
-                        themeSettingsMode:
-                          options.themeSettingsMode ?? "app",
+                        themeSettingsMode: options.themeSettingsMode ?? "app",
                       });
                     }}
                     onDefault={() => onDefaultTheme(theme)}
@@ -1701,9 +2445,7 @@ function SettingsDialog({
           </button>
         </header>
         <div className="settings-body">
-          <SettingCard
-            title={language === "ja" ? "アプリ設定" : "Application"}
-          >
+          <SettingCard title={language === "ja" ? "アプリ設定" : "Application"}>
             <div className="settings-two-column">
               <label>
                 {language === "ja" ? "言語" : "Language"}
@@ -1945,10 +2687,7 @@ function SettingsDialog({
           </Button>
           <span />
           <Button onClick={onCancel}>キャンセル</Button>
-          <Button
-            primary
-            onClick={() => onSave(draft, { language, editor })}
-          >
+          <Button primary onClick={() => onSave(draft, { language, editor })}>
             保存
           </Button>
         </footer>
@@ -2220,12 +2959,7 @@ export function App() {
   };
   const openLine = (line: number, column = 1) =>
     document &&
-    window.mdpdf.openEditor(
-      document.path,
-      line,
-      column,
-      settings.editor,
-    );
+    window.mdpdf.openEditor(document.path, line, column, settings.editor);
   const drop = async (file: File) => {
     if (/\.(md|markdown)$/i.test(file.name))
       await load(await window.mdpdf.read(window.mdpdf.filePath(file)));
@@ -2321,8 +3055,7 @@ export function App() {
       settings.language === "ja"
         ? `「${theme.name}」を削除しますか？`
         : `Delete “${theme.name}”?`;
-    if (!theme.cssPath || !window.confirm(message))
-      return;
+    if (!theme.cssPath || !window.confirm(message)) return;
     await window.mdpdf.deleteTheme(theme.cssPath);
     const nextThemes = await window.mdpdf.themes();
     setThemes(nextThemes);
@@ -2342,8 +3075,18 @@ export function App() {
   );
   const updatePreviewZoom = useCallback((zoom: number) => {
     setPreviewZoom(zoom);
-    window.localStorage.setItem(PREVIEW_ZOOM_STORAGE_KEY, String(zoom));
   }, []);
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () =>
+        window.localStorage.setItem(
+          PREVIEW_ZOOM_STORAGE_KEY,
+          String(previewZoom),
+        ),
+      200,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [previewZoom]);
   const home = (showAddButton = true) => (
     <Home
       history={history}
@@ -2459,6 +3202,7 @@ export function App() {
               fitOnFirstRender={Boolean(previewAutoFit[openDocument.path])}
               zoom={previewZoom}
               onZoom={updatePreviewZoom}
+              fontOptions={options}
               initialScroll={
                 previewScroll.current.get(openDocument.path) ?? { x: 0, y: 0 }
               }
