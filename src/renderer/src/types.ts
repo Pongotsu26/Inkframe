@@ -23,6 +23,21 @@ export interface ConvertOptions {
     h5?: number;
     h6?: number;
   };
+  mermaid?: boolean;
+  math?: boolean;
+  css?: string;
+  header?: string;
+  footer?: string;
+  title?: string;
+  author?: string;
+  date?: string;
+  subject?: string;
+  keywords?: string | string[];
+  language?: string;
+  course?: string;
+  studentId?: string;
+  instructor?: string;
+  allowExternalResources?: boolean;
 }
 export interface DocumentFile {
   path: string;
@@ -81,6 +96,7 @@ export interface MdpdfApi {
   open(): Promise<DocumentFile | undefined>;
   openFolder(): Promise<DocumentFile | undefined>;
   read(path: string): Promise<DocumentFile>;
+  resolveOptions(path: string, content: string): Promise<ConvertOptions>;
   watch(path?: string): Promise<boolean>;
   inspect(content: string): Promise<Inspection>;
   renderPreview(

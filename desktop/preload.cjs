@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("mdpdf", {
   openFolder: () => ipcRenderer.invoke("folder:open"),
   save: (path, content) => ipcRenderer.invoke("document:save", path, content),
   read: (path) => ipcRenderer.invoke("document:read", path),
+  resolveOptions: (path, content) =>
+    ipcRenderer.invoke("document:options", path, content),
   watch: (path) => ipcRenderer.invoke("document:watch", path),
   inspect: (content) => ipcRenderer.invoke("document:inspect", content),
   renderPreview: (content, path, options) =>
