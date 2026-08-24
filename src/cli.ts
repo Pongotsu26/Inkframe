@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { watch as watchFile } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Command } from "commander";
 import { listFonts } from "./fonts.js";
+import { assertOutputPlansAreSafe, batchPdfOutputPath } from "./output-path.js";
 import {
   buildMarkdownFiles,
   convertMarkdown,
@@ -39,14 +40,6 @@ function optionsConfig(options: CliOptions): ConvertOptions {
 
 function report(output: string): void {
   console.log(`PDF を生成しました: ${output}`);
-}
-
-async function outputFor(input: string, outDirectory: string): Promise<string> {
-  await mkdir(resolve(outDirectory), { recursive: true });
-  return join(
-    resolve(outDirectory),
-    `${basename(input).replace(/\.(?:md|markdown)$/i, "")}.pdf`,
-  );
 }
 
 const program = new Command();
@@ -133,13 +126,34 @@ program
     const files = await markdownFilesIn(directory);
     if (files.length === 0)
       throw new Error("Markdown ファイルが見つかりません。");
-    for (const file of files)
-      report(
-        await convertMarkdown(file, {
+    const outputRoot = resolve(options.out);
+    const plans = files.map((file) => ({
+      inputPath: file,
+      outputPath: batchPdfOutputPath(file, directory, outputRoot),
+    }));
+    await assertOutputPlansAreSafe(plans, outputRoot);
+    await mkdir(outputRoot, { recursive: true });
+    const stagingRoot = await mkdtemp(join(outputRoot, ".inkframe-batch-"));
+    try {
+      const stagingPlans = files.map((file) => ({
+        inputPath: file,
+        outputPath: batchPdfOutputPath(file, directory, stagingRoot),
+      }));
+      for (const plan of stagingPlans) {
+        await convertMarkdown(plan.inputPath, {
           ...optionsConfig(options),
-          output: await outputFor(file, options.out),
-        }),
-      );
+          output: plan.outputPath,
+        });
+      }
+      await assertOutputPlansAreSafe(plans, outputRoot);
+      for (const [index, plan] of plans.entries()) {
+        await mkdir(dirname(plan.outputPath), { recursive: true });
+        await rename(stagingPlans[index].outputPath, plan.outputPath);
+        report(plan.outputPath);
+      }
+    } finally {
+      await rm(stagingRoot, { recursive: true, force: true });
+    }
   });
 
 program

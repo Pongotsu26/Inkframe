@@ -31,6 +31,7 @@ import {
   type MenuItemConstructorOptions,
 } from "electron";
 import matter from "gray-matter";
+import { findConfig, mergeConfig } from "../config.js";
 import { listFonts } from "../fonts.js";
 import { inspectMarkdown } from "../markdown-inspection.js";
 import { convertMarkdown, type ConvertOptions } from "../renderer.js";
@@ -476,19 +477,26 @@ async function editors(): Promise<EditorInfo[]> {
   }
   return available;
 }
-function watchDocument(path?: string): void {
+function watchDocument(path?: string): boolean {
   activeWatcher?.close();
   activeWatcher = undefined;
-  if (!path) return;
+  if (!path) return false;
   try {
-    activeWatcher = watch(path, { persistent: false }, () =>
-      mainWindow?.webContents.send("document:changed", path),
+    activeWatcher = watch(
+      dirname(path),
+      { persistent: false },
+      (_event, filename) => {
+        if (filename && filename.toString() !== basename(path)) return;
+        mainWindow?.webContents.send("document:changed", path);
+      },
     );
     activeWatcher.on("error", () =>
       mainWindow?.webContents.send("document:watch-error", path),
     );
+    return true;
   } catch {
     mainWindow?.webContents.send("document:watch-error", path);
+    return false;
   }
 }
 function previewPath(path?: string): string {
@@ -555,13 +563,19 @@ app.whenReady().then(async () => {
   ipcMain.handle("document:read", async (_event, path: string) => {
     const document = { path, content: await readFile(path, "utf8") };
     await record({ path });
-    watchDocument(path);
     return document;
   });
-  ipcMain.handle("document:watch", (_event, path?: string) => {
-    watchDocument(path);
-    return Boolean(path);
-  });
+  ipcMain.handle(
+    "document:options",
+    async (_event, path: string, content: string) =>
+      mergeConfig(
+        await findConfig(path),
+        matter(content).data as ConvertOptions,
+      ),
+  );
+  ipcMain.handle("document:watch", (_event, path?: string) =>
+    watchDocument(path),
+  );
   ipcMain.handle("document:inspect", (_event, content: string) =>
     inspectMarkdown(content),
   );
