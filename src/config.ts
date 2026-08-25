@@ -1,6 +1,62 @@
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join, parse, resolve } from "node:path";
 import type { MdpdfConfig } from "./types.js";
+
+export function userConfigPath(): string {
+  const configuredDirectory = process.env.INKFRAME_CONFIG_HOME;
+  if (configuredDirectory)
+    return join(resolve(configuredDirectory), "config.json");
+
+  if (process.platform === "win32" && process.env.APPDATA)
+    return join(process.env.APPDATA, "Inkframe", "config.json");
+
+  if (process.platform === "darwin")
+    return join(
+      homedir(),
+      "Library",
+      "Application Support",
+      "Inkframe",
+      "config.json",
+    );
+
+  return join(
+    process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
+    "inkframe",
+    "config.json",
+  );
+}
+
+export async function readUserConfig(
+  filePath = userConfigPath(),
+): Promise<MdpdfConfig> {
+  try {
+    await access(filePath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return {};
+    throw error;
+  }
+  return readConfig(filePath);
+}
+
+export async function writeUserConfig(
+  config: MdpdfConfig,
+  filePath = userConfigPath(),
+): Promise<void> {
+  const serializable = { ...config };
+  for (const key of [
+    "font",
+    "fontFace",
+    "fontSize",
+    "pageNumberFont",
+  ] as const) {
+    const value = serializable[key];
+    if (value && Object.keys(value).length === 0) delete serializable[key];
+  }
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(serializable, null, 2)}\n`);
+}
 
 export async function findConfig(
   inputPath: string,

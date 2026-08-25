@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import matter from "gray-matter";
 import { PDFDocument } from "pdf-lib";
 import { chromium } from "playwright";
-import { findConfig, mergeConfig } from "./config.js";
+import { findConfig, mergeConfig, readUserConfig } from "./config.js";
 import { markdownToHtml } from "./html.js";
 import { pageDimensionsPoints, pageSizeCss } from "./page-size.js";
 import { DEFAULT_CODE_THEME, type MdpdfConfig, type Paper } from "./types.js";
@@ -96,13 +96,18 @@ export async function resolvedConfig(
       theme: "github",
       codeTheme: DEFAULT_CODE_THEME,
       paper: "A4",
+      orientation: "portrait",
       margin: "18mm",
       toc: false,
-      pageNumber: false,
+      pageNumber: true,
+      pageNumberFormat: "current-total",
       mermaid: true,
       math: true,
+      lineBreaks: false,
+      cover: false,
       fontSize: { body: 10.5 },
     },
+    await readUserConfig(),
     await findConfig(inputPath),
     await readFrontmatter(inputPath),
     options,
