@@ -435,6 +435,129 @@ function pm(m) {
   );
 }
 
+function adaptOperatorList(operatorList) {
+  const fnArray = [];
+  const argsArray = [];
+  for (let index = 0; index < operatorList.fnArray.length; index += 1) {
+    const operation = operatorList.fnArray[index];
+    const operationArguments = operatorList.argsArray[index];
+    if (operation !== OPS.constructPath) {
+      fnArray.push(operation);
+      if (
+        operation === OPS.setTextMatrix &&
+        operationArguments?.length === 1 &&
+        ArrayBuffer.isView(operationArguments[0])
+      ) {
+        argsArray.push(Array.from(operationArguments[0]));
+      } else if (
+        (operation === OPS.setFillRGBColor ||
+          operation === OPS.setStrokeRGBColor) &&
+        typeof operationArguments?.[0] === "string"
+      ) {
+        const color = operationArguments[0].slice(1);
+        argsArray.push([
+          Number.parseInt(color.slice(0, 2), 16),
+          Number.parseInt(color.slice(2, 4), 16),
+          Number.parseInt(color.slice(4, 6), 16),
+        ]);
+      } else {
+        argsArray.push(operationArguments);
+      }
+      continue;
+    }
+    if (
+      operationArguments.length === 2 &&
+      (Array.isArray(operationArguments[0]) ||
+        ArrayBuffer.isView(operationArguments[0]))
+    ) {
+      fnArray.push(operation);
+      argsArray.push(operationArguments);
+      continue;
+    }
+    const paintOperation =
+      operationArguments[0] === OPS.rawFillPath
+        ? OPS.fill
+        : operationArguments[0];
+    const packedPath = Array.isArray(operationArguments[1])
+      ? operationArguments[1][0]
+      : operationArguments[1];
+    if (packedPath === null) {
+      fnArray.push(OPS.constructPath, paintOperation);
+      argsArray.push([[], []], []);
+      continue;
+    }
+    if (!Array.isArray(packedPath) && !ArrayBuffer.isView(packedPath)) {
+      throw new Error(
+        "PDF path data is no longer serializable. Render SVG before Canvas for the same PDF document.",
+      );
+    }
+    const pathOperations = [];
+    const pathArguments = [];
+    let x = 0;
+    let y = 0;
+    let subpathStartX = 0;
+    let subpathStartY = 0;
+    for (let offset = 0; offset < packedPath.length; ) {
+      const pathOperation = packedPath[offset++];
+      if (pathOperation === 0 || pathOperation === 1) {
+        x = packedPath[offset++];
+        y = packedPath[offset++];
+        if (pathOperation === 0) {
+          subpathStartX = x;
+          subpathStartY = y;
+        }
+        pathOperations.push(pathOperation === 0 ? OPS.moveTo : OPS.lineTo);
+        pathArguments.push(x, y);
+        continue;
+      }
+      if (pathOperation === 2) {
+        const values = [
+          packedPath[offset],
+          packedPath[offset + 1],
+          packedPath[offset + 2],
+          packedPath[offset + 3],
+          packedPath[offset + 4],
+          packedPath[offset + 5],
+        ];
+        offset += 6;
+        x = values[4];
+        y = values[5];
+        pathOperations.push(OPS.curveTo);
+        pathArguments.push(...values);
+        continue;
+      }
+      if (pathOperation === 3) {
+        const controlX = packedPath[offset++];
+        const controlY = packedPath[offset++];
+        const endX = packedPath[offset++];
+        const endY = packedPath[offset++];
+        pathOperations.push(OPS.curveTo);
+        pathArguments.push(
+          x + ((controlX - x) * 2) / 3,
+          y + ((controlY - y) * 2) / 3,
+          endX + ((controlX - endX) * 2) / 3,
+          endY + ((controlY - endY) * 2) / 3,
+          endX,
+          endY,
+        );
+        x = endX;
+        y = endY;
+        continue;
+      }
+      if (pathOperation === 4) {
+        pathOperations.push(OPS.closePath);
+        x = subpathStartX;
+        y = subpathStartY;
+        continue;
+      }
+      throw new Error(`Unsupported PDF path operation: ${pathOperation}`);
+    }
+    fnArray.push(OPS.constructPath, paintOperation);
+    argsArray.push([pathOperations, pathArguments], []);
+  }
+  return { fnArray, argsArray };
+}
+
 // The counts below are relevant for all pages, so they have to be global
 // instead of being members of `SVGGraphics` (which is recreated for
 // each page).
@@ -534,9 +657,10 @@ class SVGGraphics {
     this.viewport = viewport;
 
     const svgElement = this._initialize(viewport);
-    return this.loadDependencies(operatorList).then(() => {
+    const adaptedOperatorList = adaptOperatorList(operatorList);
+    return this.loadDependencies(adaptedOperatorList).then(() => {
       this.transformMatrix = IDENTITY_MATRIX;
-      this.executeOpTree(this.convertOpList(operatorList));
+      this.executeOpTree(this.convertOpList(adaptedOperatorList));
       return svgElement;
     });
   }
@@ -584,6 +708,12 @@ class SVGGraphics {
           break;
         case OPS.showSpacedText:
           this.showText(args[0]);
+          break;
+        case OPS.setCharWidth:
+          this.setCharWidth(args[0], args[1]);
+          break;
+        case OPS.setCharWidthAndBounds:
+          this.setCharWidthAndBounds(...args);
           break;
         case OPS.endText:
           this.endText();
@@ -797,6 +927,10 @@ class SVGGraphics {
   showText(glyphs) {
     const current = this.current;
     const font = current.font;
+    if (font.isType3Font || font.type === "Type3") {
+      this.showType3Text(glyphs);
+      return;
+    }
     const fontSize = current.fontSize;
     if (fontSize === 0) {
       return;
@@ -938,6 +1072,70 @@ class SVGGraphics {
     current.txtgrp.append(current.txtElement);
 
     this._ensureTransformGroup().append(current.txtElement);
+  }
+
+  showType3Text(glyphs) {
+    const current = this.current;
+    const font = current.font;
+    const fontSize = current.fontSize;
+    if (
+      fontSize === 0 ||
+      current.textRenderingMode === TextRenderingMode.INVISIBLE
+    ) {
+      return;
+    }
+    const fontDirection = current.fontDirection;
+    const spacingDirection = font.vertical ? 1 : -1;
+    const textHScale = current.textHScale * fontDirection;
+    const fontMatrix = current.fontMatrix || FONT_IDENTITY_MATRIX;
+    const originX = current.x;
+    const originY = current.y + current.textRise;
+    let x = 0;
+    for (const glyph of glyphs) {
+      if (typeof glyph === "number") {
+        x += (spacingDirection * glyph * fontSize) / 1000;
+        continue;
+      }
+      if (glyph === null) {
+        x += fontDirection * current.wordSpacing;
+        continue;
+      }
+      const spacing =
+        (glyph.isSpace ? current.wordSpacing : 0) + current.charSpacing;
+      const operatorList = font.charProcOperatorList?.[glyph.operatorListId];
+      if (!operatorList) {
+        warn(`Type3 character "${glyph.operatorListId}" is not available.`);
+      } else {
+        this.save();
+        if (operatorList.fnArray[0] === OPS.setCharWidth) {
+          this.current.fillAlpha = 1;
+          this.current.strokeAlpha = 1;
+        }
+        this.transform(...current.textMatrix);
+        this.transform(1, 0, 0, 1, originX, originY);
+        this.transform(textHScale, 0, 0, fontDirection, 0, 0);
+        this.transform(1, 0, 0, 1, x, 0);
+        this.transform(fontSize, 0, 0, fontSize, 0, 0);
+        this.transform(...fontMatrix);
+        this.executeOpTree(this.convertOpList(adaptOperatorList(operatorList)));
+        this.restore();
+      }
+      const glyphAdvance = [glyph.width, 0];
+      Util.applyTransform(glyphAdvance, fontMatrix);
+      x += glyphAdvance[0] * fontSize + spacing;
+    }
+    current.x += x * textHScale;
+  }
+
+  setCharWidth(xWidth, yWidth) {}
+
+  setCharWidthAndBounds(xWidth, yWidth, lowerX, lowerY, upperX, upperY) {
+    this.constructPath(
+      [OPS.rectangle],
+      [lowerX, lowerY, upperX - lowerX, upperY - lowerY],
+    );
+    this.clip("nonzero");
+    this.endPath();
   }
 
   setLeadingMoveText(x, y) {
@@ -1130,26 +1328,38 @@ class SVGGraphics {
     // Save current state.
     const svg = this.svg;
     const transformMatrix = this.transformMatrix;
-    const fillColor = this.current.fillColor;
-    const strokeColor = this.current.strokeColor;
+    const current = this.current;
+    const transformGroup = this.tgrp;
+    const pendingClip = this.pendingClip;
+    const pendingEOFill = this.pendingEOFill;
 
     const bbox = this.svgFactory.create(tx1 - tx0, ty1 - ty0);
     this.svg = bbox;
     this.transformMatrix = matrix;
+    this.current = current.clone();
+    this.current.activeClipUrl = null;
+    this.current.clipGroup = null;
+    this.tgrp = null;
+    this.pendingClip = null;
+    this.pendingEOFill = false;
     if (paintType === 2) {
       const cssColor = Util.makeHexColor(...color);
       this.current.fillColor = cssColor;
       this.current.strokeColor = cssColor;
     }
-    this.executeOpTree(this.convertOpList(operatorList));
+    try {
+      this.executeOpTree(this.convertOpList(adaptOperatorList(operatorList)));
+    } finally {
+      // Restore saved state.
+      this.svg = svg;
+      this.transformMatrix = transformMatrix;
+      this.current = current;
+      this.tgrp = transformGroup;
+      this.pendingClip = pendingClip;
+      this.pendingEOFill = pendingEOFill;
+    }
 
-    // Restore saved state.
-    this.svg = svg;
-    this.transformMatrix = transformMatrix;
-    this.current.fillColor = fillColor;
-    this.current.strokeColor = strokeColor;
-
-    tiling.append(bbox.childNodes[0]);
+    tiling.append(...bbox.childNodes);
     this.defs.append(tiling);
     return `url(#${tilingId})`;
   }
@@ -1700,4 +1910,4 @@ class SVGGraphics {
   }
 }
 
-export { SVGGraphics };
+export { adaptOperatorList, SVGGraphics };

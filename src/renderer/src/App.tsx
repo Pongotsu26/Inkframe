@@ -6,8 +6,9 @@ import {
   useRef,
   useState,
 } from "react";
+import type { SetStateAction } from "react";
 import pagedPolyfillSource from "virtual:pagedjs-polyfill";
-import { GlobalWorkerOptions, getDocument, OPS } from "pdfjs-dist";
+import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import type { PDFPageProxy } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { pageSizeCss } from "../../page-size";
@@ -28,6 +29,13 @@ import {
   PREVIEW_PAGINATION_SCRIPT,
   PREVIEW_PAGINATION_STYLES,
 } from "./preview-pagination";
+import {
+  mergePreviewOptions,
+  previewRequestKey,
+  previewOptionOverrides,
+  shouldRequestPreview,
+  type PreviewCacheEntry,
+} from "./preview-state";
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 const PAGED_POLYFILL_URL = URL.createObjectURL(
   new Blob([pagedPolyfillSource], { type: "text/javascript" }),
@@ -87,6 +95,7 @@ const ENGLISH_UI = new Map<string, string>([
   ["ページの組版がタイムアウトしました", "Page layout timed out"],
   ["プレビュー生成がタイムアウトしました", "Preview generation timed out"],
   ["プレビューを読み込めませんでした", "Could not load preview"],
+  ["前回のプレビューを表示しています", "Showing the previous preview"],
   ["幅に合わせる", "Fit Width"],
   ["ドキュメントテーマ", "Document Theme"],
   ["PDFの組版と表現を選択", "Choose PDF layout and appearance"],
@@ -1150,7 +1159,7 @@ function HtmlPreviewPane({
             </div>
           )}
         {(error || previewError) && !frameDocuments[activeFrame] ? (
-          <div className="preview-error">
+          <div className="preview-error" role="alert">
             <strong>プレビューを更新できませんでした</strong>
             <span>{error || previewError}</span>
           </div>
@@ -1198,6 +1207,49 @@ interface RenderedPdfPage {
     width: number;
     height: number;
   }>;
+}
+
+interface PreviewPositionAnchor {
+  pageNumber: string;
+  relativeX: number;
+  relativeY: number;
+  clientX: number;
+  clientY: number;
+}
+
+function capturePreviewPosition(
+  stage: HTMLElement,
+): PreviewPositionAnchor | undefined {
+  const pages = Array.from(
+    stage.querySelectorAll<HTMLElement>(".pdf-preview-page"),
+  );
+  if (!pages.length) return undefined;
+  const stageBounds = stage.getBoundingClientRect();
+  const clientX = stageBounds.left + stageBounds.width / 2;
+  const clientY = stageBounds.top + stageBounds.height / 2;
+  const page = pages.reduce((nearest, candidate) => {
+    const nearestBounds = nearest.getBoundingClientRect();
+    const candidateBounds = candidate.getBoundingClientRect();
+    const nearestDistance = Math.abs(
+      clientY - (nearestBounds.top + nearestBounds.bottom) / 2,
+    );
+    const candidateDistance = Math.abs(
+      clientY - (candidateBounds.top + candidateBounds.bottom) / 2,
+    );
+    return candidateDistance < nearestDistance ? candidate : nearest;
+  });
+  if (!page.dataset.pageNumber) return undefined;
+  const pageBounds = page.getBoundingClientRect();
+  return {
+    pageNumber: page.dataset.pageNumber,
+    relativeX: Math.max(
+      0,
+      Math.min(1, (clientX - pageBounds.left) / pageBounds.width),
+    ),
+    relativeY: (clientY - pageBounds.top) / pageBounds.height,
+    clientX,
+    clientY,
+  };
 }
 
 function decodePdfData(value: string): Uint8Array {
@@ -1249,161 +1301,15 @@ async function renderPdfPages(value: string): Promise<RenderedPdfPage[]> {
   return rendered;
 }
 
-function adaptOperatorListForSvg(operatorList: {
-  fnArray: number[];
-  argsArray: unknown[][];
-}) {
-  const fnArray: number[] = [];
-  const argsArray: unknown[][] = [];
-  for (let index = 0; index < operatorList.fnArray.length; index += 1) {
-    const operation = operatorList.fnArray[index];
-    const operationArguments = operatorList.argsArray[index];
-    if (operation !== OPS.constructPath) {
-      fnArray.push(operation);
-      if (
-        operation === OPS.setTextMatrix &&
-        operationArguments?.length === 1 &&
-        ArrayBuffer.isView(operationArguments[0])
-      ) {
-        argsArray.push(Array.from(operationArguments[0] as Float32Array));
-      } else if (
-        (operation === OPS.setFillRGBColor ||
-          operation === OPS.setStrokeRGBColor) &&
-        typeof operationArguments?.[0] === "string"
-      ) {
-        const color = operationArguments[0].slice(1);
-        argsArray.push([
-          Number.parseInt(color.slice(0, 2), 16),
-          Number.parseInt(color.slice(2, 4), 16),
-          Number.parseInt(color.slice(4, 6), 16),
-        ]);
-      } else {
-        argsArray.push(operationArguments);
-      }
-      continue;
-    }
-    const paintOperation = operationArguments[0] as number;
-    const packedPath = (operationArguments[1] as [ArrayLike<number>])[0];
-    const pathOperations: number[] = [];
-    const pathArguments: number[] = [];
-    let x = 0;
-    let y = 0;
-    for (let offset = 0; offset < packedPath.length; ) {
-      const pathOperation = packedPath[offset++];
-      if (pathOperation === 0 || pathOperation === 1) {
-        x = packedPath[offset++];
-        y = packedPath[offset++];
-        pathOperations.push(pathOperation === 0 ? OPS.moveTo : OPS.lineTo);
-        pathArguments.push(x, y);
-        continue;
-      }
-      if (pathOperation === 2) {
-        const values = Array.from(packedPath).slice(offset, offset + 6);
-        offset += 6;
-        x = values[4];
-        y = values[5];
-        pathOperations.push(OPS.curveTo);
-        pathArguments.push(...values);
-        continue;
-      }
-      if (pathOperation === 3) {
-        const controlX = packedPath[offset++];
-        const controlY = packedPath[offset++];
-        const endX = packedPath[offset++];
-        const endY = packedPath[offset++];
-        pathOperations.push(OPS.curveTo);
-        pathArguments.push(
-          x + ((controlX - x) * 2) / 3,
-          y + ((controlY - y) * 2) / 3,
-          endX + ((controlX - endX) * 2) / 3,
-          endY + ((controlY - endY) * 2) / 3,
-          endX,
-          endY,
-        );
-        x = endX;
-        y = endY;
-        continue;
-      }
-      if (pathOperation === 4) {
-        pathOperations.push(OPS.closePath);
-        continue;
-      }
-      throw new Error("未対応のPDFパス命令です: " + pathOperation);
-    }
-    fnArray.push(OPS.constructPath, paintOperation);
-    argsArray.push([pathOperations, pathArguments], []);
-  }
-  return { fnArray, argsArray };
-}
-
-type PreviewFontOptions = Pick<
-  ConvertOptions,
-  "font" | "fontFace" | "fontSize"
->;
-
-function nativeSvgFontFamily(
-  font: Record<string, unknown>,
-  options: PreviewFontOptions,
-  fontSize: number,
-): string {
-  const pdfName = String(font.name || font.fallbackName || "sans-serif")
-    .replace(/^[A-Z]{6}\+/, "")
-    .replace(
-      /-(?:Regular|Bold|SemiBold|DemiBold|Medium|Light|Thin|Black|Italic|Oblique).*$/i,
-      "",
-    );
-  const family = pdfName
-    .replace(/^BIZUDPGothic$/i, "BIZ UDPGothic")
-    .replace(/^BIZUDPMincho$/i, "BIZ UDPMincho");
-  const monospace = /(?:Mono|Menlo|Consolas|Courier|Code)/i.test(pdfName);
-  const heading = fontSize > (options.fontSize?.body ?? 10.5) * 1.1;
-  const selectedFace = monospace
-    ? options.fontFace?.code
-    : heading
-      ? options.fontFace?.heading || options.fontFace?.body
-      : options.fontFace?.body;
-  const selectedFamily = monospace
-    ? options.font?.code
-    : heading
-      ? options.font?.heading || options.font?.body
-      : options.font?.body;
-  const candidates = [selectedFace, selectedFamily, family]
-    .filter((candidate): candidate is string => Boolean(candidate))
-    .map((candidate) => `"${candidate.replaceAll('"', "")}"`);
-  return [
-    ...new Set(candidates),
-    '"Hiragino Sans"',
-    '"Yu Gothic"',
-    "sans-serif",
-  ].join(", ");
-}
-
-function nativeSvgFontWeight(font: Record<string, unknown>): string {
-  const name = String(font.name || "");
-  if (/-(?:Black|Heavy)/i.test(name)) return "900";
-  if (/-(?:ExtraBold|UltraBold)/i.test(name)) return "800";
-  if (/-(?:Bold)/i.test(name)) return "700";
-  if (/-(?:SemiBold|DemiBold)/i.test(name)) return "600";
-  if (/-(?:Medium)/i.test(name)) return "500";
-  if (/-(?:Light)/i.test(name)) return "300";
-  if (/-(?:Thin|ExtraLight|UltraLight)/i.test(name)) return "200";
-  return "normal";
-}
-
 const PdfSvgPage = memo(function PdfSvgPage({
   renderedPage,
   pageNumber,
-  fontOptions,
 }: {
   renderedPage: RenderedPdfPage;
   pageNumber: number;
-  fontOptions: PreviewFontOptions;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const renderedSource = useRef<{
-    page: PDFPageProxy;
-    fontOptions: PreviewFontOptions;
-  }>();
+  const renderedSource = useRef<PDFPageProxy>();
   const [nearViewport, setNearViewport] = useState(false);
 
   useEffect(() => {
@@ -1425,11 +1331,7 @@ const PdfSvgPage = memo(function PdfSvgPage({
     if (!nearViewport) return;
     const container = containerRef.current;
     if (!container) return;
-    if (
-      renderedSource.current?.page === renderedPage.page &&
-      renderedSource.current.fontOptions === fontOptions
-    )
-      return;
+    if (renderedSource.current === renderedPage.page) return;
     let cancelled = false;
     const render = async () => {
       const viewport = renderedPage.page.getViewport({
@@ -1442,53 +1344,14 @@ const PdfSvgPage = memo(function PdfSvgPage({
         true,
       );
       graphics.embedFonts = false;
-      const showText = graphics.showText.bind(graphics);
-      graphics.showText = (glyphs: unknown[]) => {
-        const current = graphics.current as unknown as {
-          font?: Record<string, unknown> & { type?: string };
-          fontFamily: string;
-          fontStyle: string;
-          fontWeight: string;
-          fontSize: number;
-        };
-        if (current.font?.type === "Type3") {
-          current.fontFamily = nativeSvgFontFamily(
-            current.font,
-            fontOptions,
-            current.fontSize,
-          );
-          current.fontWeight = nativeSvgFontWeight(current.font);
-          current.fontStyle = /-(?:Italic|Oblique)/i.test(
-            String(current.font.name || ""),
-          )
-            ? "italic"
-            : "normal";
-          showText(
-            glyphs.map((glyph) =>
-              glyph && typeof glyph === "object"
-                ? {
-                    ...(glyph as Record<string, unknown>),
-                    fontChar:
-                      (glyph as { unicode?: string }).unicode ||
-                      (glyph as { fontChar?: string }).fontChar ||
-                      "",
-                    isInFont: true,
-                  }
-                : glyph,
-            ),
-          );
-          return;
-        }
-        showText(glyphs);
-      };
       const svg = (await graphics.getSVG(
-        adaptOperatorListForSvg(operatorList),
+        operatorList,
         viewport,
       )) as unknown as SVGSVGElement;
       if (cancelled || !containerRef.current) return;
       container.querySelector(":scope > svg")?.remove();
       container.prepend(svg);
-      renderedSource.current = { page: renderedPage.page, fontOptions };
+      renderedSource.current = renderedPage.page;
     };
     void render().catch((caught) => {
       if (!cancelled) console.error(caught);
@@ -1496,7 +1359,7 @@ const PdfSvgPage = memo(function PdfSvgPage({
     return () => {
       cancelled = true;
     };
-  }, [fontOptions, nearViewport, renderedPage]);
+  }, [nearViewport, renderedPage]);
 
   return (
     <div
@@ -1536,9 +1399,9 @@ function PdfPreviewPane({
   fitOnFirstRender,
   zoom,
   onZoom,
+  onInitialFit,
   initialScroll,
   onScroll,
-  fontOptions,
 }: {
   preview?: PreviewHtml;
   status: string;
@@ -1547,9 +1410,9 @@ function PdfPreviewPane({
   fitOnFirstRender: boolean;
   zoom: number;
   onZoom: (zoom: number) => void;
+  onInitialFit: () => void;
   initialScroll: { x: number; y: number };
   onScroll: (position: { x: number; y: number }) => void;
-  fontOptions: PreviewFontOptions;
 }) {
   const [pages, setPages] = useState<RenderedPdfPage[]>([]);
   const [rendering, setRendering] = useState(false);
@@ -1557,6 +1420,12 @@ function PdfPreviewPane({
   const stageRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
   const renderId = useRef(0);
+  const pendingRefreshPosition = useRef<{
+    anchor?: PreviewPositionAnchor;
+    scroll: { x: number; y: number };
+  }>();
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const needsInitialFit = useRef(fitOnFirstRender);
   const trackpadZoom = useRef(zoom);
   const trackpadFrame = useRef<number>();
@@ -1580,6 +1449,41 @@ function PdfPreviewPane({
   const horizontalPan = useRef(0);
   const verticalPan = useRef(0);
 
+  const applyInitialFit = (firstPage?: RenderedPdfPage) => {
+    const stage = stageRef.current;
+    if (!activeRef.current || !needsInitialFit.current || !firstPage || !stage)
+      return;
+    const fitted = Math.floor(
+      (stage.clientWidth / (firstPage.width + 48)) * 100,
+    );
+    onZoom(Math.max(40, Math.min(MAX_PREVIEW_ZOOM, fitted)));
+    onInitialFit();
+    needsInitialFit.current = false;
+  };
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    const pending = pendingRefreshPosition.current;
+    if (!stage || !pending) return;
+    pendingRefreshPosition.current = undefined;
+    const anchoredPage = pending.anchor
+      ? stage.querySelector<HTMLElement>(
+          `[data-page-number="${pending.anchor.pageNumber}"]`,
+        )
+      : undefined;
+    if (!anchoredPage || !pending.anchor) {
+      stage.scrollTo(pending.scroll.x, pending.scroll.y);
+      return;
+    }
+    const updatedBounds = anchoredPage.getBoundingClientRect();
+    const updatedX =
+      updatedBounds.left + updatedBounds.width * pending.anchor.relativeX;
+    const updatedY =
+      updatedBounds.top + updatedBounds.height * pending.anchor.relativeY;
+    stage.scrollLeft += updatedX - pending.anchor.clientX;
+    stage.scrollTop += updatedY - pending.anchor.clientY;
+  }, [pages]);
+
   useEffect(() => {
     // Pinch input can run ahead of React renders. Reapplying a delayed zoom
     // prop here would make the gesture alternate between old and new scales.
@@ -1588,6 +1492,14 @@ function PdfPreviewPane({
     }
     trackpadZoom.current = zoom;
   }, [zoom]);
+
+  useLayoutEffect(() => {
+    if (fitOnFirstRender) needsInitialFit.current = true;
+  }, [fitOnFirstRender]);
+
+  useLayoutEffect(() => {
+    applyInitialFit(pages[0]);
+  }, [active, fitOnFirstRender, pages]);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
@@ -1630,6 +1542,14 @@ function PdfPreviewPane({
 
   useEffect(() => {
     if (!preview) return;
+    const stage = stageRef.current;
+    const hasRenderedPages = pages.length > 0;
+    const anchor =
+      stage && hasRenderedPages ? capturePreviewPosition(stage) : undefined;
+    const scroll =
+      stage && hasRenderedPages
+        ? { x: stage.scrollLeft, y: stage.scrollTop }
+        : initialScroll;
     trackpadGesture.current = undefined;
     if (trackpadGestureTimeout.current)
       window.clearTimeout(trackpadGestureTimeout.current);
@@ -1637,10 +1557,6 @@ function PdfPreviewPane({
     verticalPan.current = 0;
     if (pagesRef.current) pagesRef.current.style.transform = "";
     const id = ++renderId.current;
-    const stage = stageRef.current;
-    const scroll = stage
-      ? { x: stage.scrollLeft, y: stage.scrollTop }
-      : initialScroll;
     setRendering(true);
     setPreviewError(undefined);
     void renderPdfPages(preview.pdfData)
@@ -1648,17 +1564,9 @@ function PdfPreviewPane({
         if (id !== renderId.current) {
           return;
         }
+        pendingRefreshPosition.current = { anchor, scroll };
         setPages(nextPages);
-        if (needsInitialFit.current && nextPages[0] && stageRef.current) {
-          const fitted = Math.floor(
-            (stageRef.current.clientWidth / (nextPages[0].width + 48)) * 100,
-          );
-          onZoom(Math.max(40, Math.min(MAX_PREVIEW_ZOOM, fitted)));
-          needsInitialFit.current = false;
-        }
-        window.requestAnimationFrame(() =>
-          stageRef.current?.scrollTo(scroll.x, scroll.y),
-        );
+        applyInitialFit(nextPages[0]);
       })
       .catch((caught) => {
         if (id === renderId.current)
@@ -1817,13 +1725,8 @@ function PdfPreviewPane({
           })
         }
       >
-        {(rendering || status === "レンダリング中") && (
-          <div className="rendering-banner">
-            <i /> PDFプレビューを描画しています
-          </div>
-        )}
         {(error || previewError) && !pages.length ? (
-          <div className="preview-error">
+          <div className="preview-error" role="alert">
             <strong>プレビューを更新できませんでした</strong>
             <span>{error || previewError}</span>
           </div>
@@ -1837,13 +1740,24 @@ function PdfPreviewPane({
               <PdfSvgPage
                 renderedPage={page}
                 pageNumber={index + 1}
-                fontOptions={fontOptions}
                 key={index}
               />
             ))}
           </div>
         )}
       </div>
+      {(error || previewError) && pages.length > 0 && (
+        <div className="preview-error stale-preview-error" role="alert">
+          <strong>プレビューを更新できませんでした</strong>
+          <span>{error || previewError}</span>
+          <small>前回のプレビューを表示しています</small>
+        </div>
+      )}
+      {(rendering || status === "レンダリング中") && (
+        <div className="rendering-banner pdf-rendering-banner">
+          <i /> PDFプレビューを描画しています
+        </div>
+      )}
       <div className="zoom-controls">
         <button onClick={() => changeZoom(zoom - 10)}>−</button>
         <span>{Math.round(zoom)}%</span>
@@ -2696,25 +2610,68 @@ function SettingsDialog({
   );
 }
 
+interface DocumentRenderState {
+  status: string;
+  previewError?: string;
+}
+
+interface DocumentOptionsResolution {
+  contentKey: string;
+  applicationDefaults: ConvertOptions;
+  source: ConvertOptions;
+}
+
+function applyStateAction<T>(action: SetStateAction<T>, current: T): T {
+  return typeof action === "function"
+    ? (action as (value: T) => T)(current)
+    : action;
+}
+
+function applicationOptions(
+  settings: AppSettings,
+  themes: Theme[],
+): ConvertOptions {
+  const configured = mergePreviewOptions(
+    DEFAULT_OPTIONS,
+    settings.defaultOptions,
+  );
+  if (
+    !settings.defaultOptions?.theme &&
+    settings.defaultTheme &&
+    themes.some((theme) => theme.id === settings.defaultTheme)
+  ) {
+    configured.theme = settings.defaultTheme;
+  }
+  return configured;
+}
+
 export function App() {
   const initialPreviewZoom = useRef(savedPreviewZoom());
-  const [document, setDocument] = useState<DocumentFile>();
-  const [documents, setDocuments] = useState<DocumentFile[]>([]);
+  const [document, setDocumentState] = useState<DocumentFile>();
+  const documentRef = useRef<DocumentFile>();
+  const activePathRef = useRef<string>();
+  const [documents, setDocumentsState] = useState<DocumentFile[]>([]);
+  const documentsRef = useRef<DocumentFile[]>([]);
+  const [documentOptions, setDocumentOptionsState] = useState<
+    Record<string, ConvertOptions>
+  >({});
+  const documentOptionsRef = useRef<Record<string, ConvertOptions>>({});
+  const [defaultOptions, setDefaultOptionsState] = useState(DEFAULT_OPTIONS);
+  const defaultOptionsRef = useRef<ConvertOptions>(DEFAULT_OPTIONS);
+  const [previewEntries, setPreviewEntriesState] = useState<
+    Record<string, PreviewCacheEntry>
+  >({});
+  const previewEntriesRef = useRef<Record<string, PreviewCacheEntry>>({});
+  const [renderStates, setRenderStates] = useState<
+    Record<string, DocumentRenderState>
+  >({});
   const [showingHome, setShowingHome] = useState(false);
-  const [previews, setPreviews] = useState<Record<string, PreviewHtml>>({});
-  const [previewAutoFit, setPreviewAutoFit] = useState<Record<string, boolean>>(
-    {},
-  );
-  const [status, setStatus] = useState("待機中");
   const [watchStatus, setWatchStatus] = useState("未監視");
-  const [error, setError] = useState<string>();
-  const [inspection, setInspection] = useState(EMPTY_INSPECTION);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [themes, setThemes] = useState<Theme[]>([]);
   const [fonts, setFonts] = useState<FontFamily[]>([]);
   const [editors, setEditors] = useState<EditorInfo[]>([]);
   const [settings, setSettings] = useState<AppSettings>({});
-  const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [side, setSide] = useState<SideSection>("Source");
   const [tab, setTab] = useState<InspectorTab>("Style");
   const [result, setResult] = useState<ExportResult>();
@@ -2728,241 +2685,460 @@ export function App() {
   const [previewZoom, setPreviewZoom] = useState(
     initialPreviewZoom.current ?? 100,
   );
-  const renderId = useRef(0);
-  useEffect(() => {
-    if (settings.language !== "en") return;
-    window.document.documentElement.lang = "en";
-    translateEnglishInterface(window.document.body);
-    const observer = new MutationObserver((records) => {
-      for (const record of records) {
-        if (record.type === "characterData")
-          translateEnglishInterface(record.target);
-        for (const node of record.addedNodes) translateEnglishInterface(node);
-      }
-    });
-    observer.observe(window.document.body, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-    });
-    return () => observer.disconnect();
-  }, [settings.language]);
+  const selectionId = useRef(0);
+  const documentChangeIds = useRef(new Map<string, number>());
+  const watchErrorIds = useRef(new Map<string, number>());
+  const documentOptionResolutions = useRef(
+    new Map<string, DocumentOptionsResolution>(),
+  );
+  const documentOptionOverrides = useRef(new Map<string, ConvertOptions>());
+  const documentOptionRequestIds = useRef(new Map<string, number>());
+  const settingsInitialization = useRef<Promise<void>>();
+  const renderRequestId = useRef(0);
+  const renderRequests = useRef(new Map<string, { id: number; key: string }>());
   const canAutoFitNextPreview = useRef(
     initialPreviewZoom.current === undefined,
   );
   const previewScroll = useRef(new Map<string, { x: number; y: number }>());
-  const load = useCallback(async (next: DocumentFile) => {
-    setDocuments((current) =>
-      current.some((item) => item.path === next.path)
-        ? current.map((item) => (item.path === next.path ? next : item))
-        : [...current, next],
-    );
-    setDocument(next);
-    setShowingHome(false);
-    setWatchStatus(
-      (await window.mdpdf.watch(next.path)) ? "監視中" : "監視エラー",
-    );
-    setHistory(await window.mdpdf.history());
+
+  const options = document
+    ? (documentOptions[document.path] ?? defaultOptions)
+    : defaultOptions;
+  const activeRenderState = document ? renderStates[document.path] : undefined;
+  const status = activeRenderState?.status ?? "待機中";
+  const error = activeRenderState?.previewError;
+  const inspection = document
+    ? (previewEntries[document.path]?.inspection ?? EMPTY_INSPECTION)
+    : EMPTY_INSPECTION;
+
+  const storeDocuments = useCallback((next: DocumentFile[]) => {
+    documentsRef.current = next;
+    setDocumentsState(next);
   }, []);
+  const storeDocument = useCallback(
+    (next: DocumentFile) => {
+      const current = documentsRef.current;
+      storeDocuments(
+        current.some((item) => item.path === next.path)
+          ? current.map((item) => (item.path === next.path ? next : item))
+          : [...current, next],
+      );
+      if (activePathRef.current === next.path) {
+        documentRef.current = next;
+        setDocumentState(next);
+      }
+    },
+    [storeDocuments],
+  );
+  const activateDocument = useCallback((next?: DocumentFile) => {
+    activePathRef.current = next?.path;
+    documentRef.current = next;
+    setDocumentState(next);
+  }, []);
+  const storeDefaultOptions = useCallback((next: ConvertOptions) => {
+    defaultOptionsRef.current = next;
+    setDefaultOptionsState(next);
+  }, []);
+  const initializeSettings = useCallback(() => {
+    if (!settingsInitialization.current) {
+      settingsInitialization.current = Promise.all([
+        window.mdpdf.themes(),
+        window.mdpdf.settings(),
+      ])
+        .then(([nextThemes, nextSettings]) => {
+          setThemes(nextThemes);
+          setSettings(nextSettings);
+          storeDefaultOptions(applicationOptions(nextSettings, nextThemes));
+        })
+        .catch(console.error);
+    }
+    return settingsInitialization.current;
+  }, [storeDefaultOptions]);
+  const storeDocumentOptions = useCallback(
+    (path: string, next: ConvertOptions) => {
+      const updated = { ...documentOptionsRef.current, [path]: next };
+      documentOptionsRef.current = updated;
+      setDocumentOptionsState(updated);
+    },
+    [],
+  );
+  const updateDocumentOptions = useCallback(
+    (path: string, action: SetStateAction<ConvertOptions>) => {
+      const current =
+        documentOptionsRef.current[path] ?? defaultOptionsRef.current;
+      const next = applyStateAction(action, current);
+      const resolution = documentOptionResolutions.current.get(path);
+      if (resolution) {
+        const base = mergePreviewOptions(
+          resolution.applicationDefaults,
+          resolution.source,
+        );
+        documentOptionOverrides.current.set(
+          path,
+          previewOptionOverrides(base, next),
+        );
+      }
+      storeDocumentOptions(path, next);
+    },
+    [storeDocumentOptions],
+  );
+  const setOptions = useCallback(
+    (action: SetStateAction<ConvertOptions>) => {
+      const path = activePathRef.current;
+      if (path) {
+        updateDocumentOptions(path, action);
+        return;
+      }
+      storeDefaultOptions(applyStateAction(action, defaultOptionsRef.current));
+    },
+    [storeDefaultOptions, updateDocumentOptions],
+  );
+  const storePreviewEntry = useCallback(
+    (path: string, entry: PreviewCacheEntry) => {
+      const updated = { ...previewEntriesRef.current, [path]: entry };
+      previewEntriesRef.current = updated;
+      setPreviewEntriesState(updated);
+    },
+    [],
+  );
+  const consumePreviewAutoFit = useCallback(
+    (path: string) => {
+      const entry = previewEntriesRef.current[path];
+      if (!entry?.autoFit) return;
+      storePreviewEntry(path, { ...entry, autoFit: false });
+    },
+    [storePreviewEntry],
+  );
+  const updateRenderState = useCallback(
+    (path: string, next: Partial<DocumentRenderState>) => {
+      setRenderStates((current) => ({
+        ...current,
+        [path]: {
+          status: current[path]?.status ?? "待機中",
+          ...current[path],
+          ...next,
+        },
+      }));
+    },
+    [],
+  );
+  const prepareDocument = useCallback(
+    async (next: DocumentFile, isCurrent: () => boolean) => {
+      const path = next.path;
+      const requestId = (documentOptionRequestIds.current.get(path) ?? 0) + 1;
+      documentOptionRequestIds.current.set(path, requestId);
+      await initializeSettings();
+      if (
+        documentOptionRequestIds.current.get(path) !== requestId ||
+        !isCurrent()
+      )
+        return false;
+
+      const contentKey = previewRequestKey(path, next.content, {});
+      const previousResolution = documentOptionResolutions.current.get(path);
+      if (previousResolution?.contentKey === contentKey) {
+        storeDocument(next);
+        return true;
+      }
+
+      let source: ConvertOptions = {};
+      try {
+        source = await window.mdpdf.resolveOptions(path, next.content);
+      } catch {
+        // The renderer will surface configuration errors with the preview.
+      }
+      if (
+        documentOptionRequestIds.current.get(path) !== requestId ||
+        !isCurrent()
+      )
+        return false;
+
+      const resolution: DocumentOptionsResolution = {
+        contentKey,
+        applicationDefaults:
+          previousResolution?.applicationDefaults ?? defaultOptionsRef.current,
+        source,
+      };
+      documentOptionResolutions.current.set(path, resolution);
+      const base = mergePreviewOptions(
+        resolution.applicationDefaults,
+        resolution.source,
+      );
+      const overrides = documentOptionOverrides.current.get(path) ?? {};
+      storeDocument(next);
+      storeDocumentOptions(path, mergePreviewOptions(base, overrides));
+      return true;
+    },
+    [initializeSettings, storeDocument, storeDocumentOptions],
+  );
+  const finishActivation = useCallback(
+    async (next: DocumentFile, id: number) => {
+      if (id !== selectionId.current) return;
+      activateDocument(next);
+      setShowingHome(false);
+      const observedWatchErrorId = watchErrorIds.current.get(next.path) ?? 0;
+      const watching = await window.mdpdf.watch(next.path);
+      if (id !== selectionId.current) return;
+      if (
+        activePathRef.current === next.path &&
+        (watchErrorIds.current.get(next.path) ?? 0) === observedWatchErrorId
+      )
+        setWatchStatus(watching ? "監視中" : "監視エラー");
+      const observedChangeId = documentChangeIds.current.get(next.path) ?? 0;
+      const latest = await window.mdpdf.read(next.path);
+      if (
+        !(await prepareDocument(
+          latest,
+          () =>
+            id === selectionId.current &&
+            (documentChangeIds.current.get(next.path) ?? 0) ===
+              observedChangeId,
+        ))
+      )
+        return;
+      activateDocument(latest);
+      setHistory(await window.mdpdf.history());
+    },
+    [activateDocument, prepareDocument],
+  );
+  const load = useCallback(
+    async (next: DocumentFile) => {
+      const id = ++selectionId.current;
+      await finishActivation(next, id);
+    },
+    [finishActivation],
+  );
+  const readAndLoad = useCallback(
+    async (path: string) => {
+      const id = ++selectionId.current;
+      const next = await window.mdpdf.read(path);
+      await finishActivation(next, id);
+    },
+    [finishActivation],
+  );
   const open = useCallback(async () => {
     const next = await window.mdpdf.open();
     if (next) await load(next);
   }, [load]);
-  const render = useCallback(async () => {
-    if (!document) return;
-    const id = ++renderId.current;
-    let renderTimeout: number | undefined;
-    setStatus("レンダリング中");
-    setError(undefined);
-    try {
-      const [nextPreview, nextInspection] = await Promise.race([
-        Promise.all([
-          window.mdpdf.renderPreview(document.content, document.path, options),
-          window.mdpdf.inspect(document.content),
-        ]),
-        new Promise<never>((_, reject) => {
-          renderTimeout = window.setTimeout(
-            () => reject(new Error("プレビュー生成がタイムアウトしました")),
-            PREVIEW_RENDER_TIMEOUT_MS,
-          );
-        }),
-      ]);
-      if (id === renderId.current) {
-        const autoFit = canAutoFitNextPreview.current;
-        canAutoFitNextPreview.current = false;
-        setPreviewAutoFit((current) => ({
-          ...current,
-          [document.path]: autoFit,
-        }));
-        setPreviews((current) => ({
-          ...current,
-          [document.path]: nextPreview,
-        }));
-        setInspection(nextInspection);
-        setStatus("更新済み");
-      }
-    } catch (caught) {
-      if (id === renderId.current) {
-        setError(caught instanceof Error ? caught.message : String(caught));
-        setStatus("エラー");
-      }
-    } finally {
-      window.clearTimeout(renderTimeout);
-    }
-  }, [document, options]);
-  useEffect(() => {
-    Promise.all([
-      window.mdpdf.themes(),
-      window.mdpdf.history(),
-      window.mdpdf.settings(),
-    ]).then(([nextThemes, nextHistory, nextSettings]) => {
-      setThemes(nextThemes);
-      setHistory(nextHistory);
-      setSettings(nextSettings);
-      if (nextSettings.defaultOptions)
-        setOptions({
-          ...DEFAULT_OPTIONS,
-          ...nextSettings.defaultOptions,
-          font: {
-            ...DEFAULT_OPTIONS.font,
-            ...nextSettings.defaultOptions.font,
-          },
-          fontFace: {
-            ...DEFAULT_OPTIONS.fontFace,
-            ...nextSettings.defaultOptions.fontFace,
-          },
-          fontSize: {
-            ...DEFAULT_OPTIONS.fontSize,
-            ...nextSettings.defaultOptions.fontSize,
-          },
-          pageNumberFont: {
-            ...DEFAULT_OPTIONS.pageNumberFont,
-            ...nextSettings.defaultOptions.pageNumberFont,
-          },
-        });
+
+  const renderPath = useCallback(
+    async (path: string, force = false) => {
+      const currentDocument = documentsRef.current.find(
+        (item) => item.path === path,
+      );
+      if (!currentDocument) return;
+      const currentOptions =
+        documentOptionsRef.current[path] ?? defaultOptionsRef.current;
+      const key = previewRequestKey(
+        path,
+        currentDocument.content,
+        currentOptions,
+      );
+      const pending = renderRequests.current.get(path);
       if (
-        !nextSettings.defaultOptions?.theme &&
-        nextSettings.defaultTheme &&
-        nextThemes.some((theme) => theme.id === nextSettings.defaultTheme)
+        !shouldRequestPreview({
+          entry: previewEntriesRef.current[path],
+          key,
+          pendingKey: pending?.key,
+          force,
+        })
       )
-        setOptions((current) => ({
-          ...current,
-          theme: nextSettings.defaultTheme,
-        }));
-    });
-    window.mdpdf.fonts().then(setFonts).catch(console.error);
-    window.mdpdf.editors().then(setEditors).catch(console.error);
-  }, []);
-  useEffect(
-    () => window.mdpdf.onOpenSettings(() => setShowingSettings(true)),
-    [],
-  );
-  useEffect(() => {
-    void window.mdpdf.updateMenuDocumentOptions({
-      toc: options.toc,
-      cover: options.cover,
-      pageNumber: options.pageNumber,
-    });
-  }, [options.toc, options.cover, options.pageNumber]);
-  useEffect(() => {
-    const closePanesInNarrowWindow = () => {
-      if (window.innerWidth >= 1180) return;
-      setLeftPaneOpen(false);
-      setRightPaneOpen(false);
-    };
-    window.addEventListener("resize", closePanesInNarrowWindow);
-    closePanesInNarrowWindow();
-    return () => window.removeEventListener("resize", closePanesInNarrowWindow);
-  }, []);
-  useEffect(
-    () =>
-      window.mdpdf.onMenuAction((action, value) => {
-        if (action === "open") void open();
-        if (action === "new-tab") setShowingHome(true);
-        if (action === "open-recent" && typeof value === "string")
-          void window.mdpdf.read(value).then(load);
-        if (action === "export") void exportPdf();
-        if (action === "open-editor" && document) void openLine(1);
-        if (action === "reveal" && document)
-          void window.mdpdf.reveal(document.path);
-        if (action.startsWith("zoom-"))
-          window.dispatchEvent(
-            new CustomEvent("inkframe:preview-command", { detail: action }),
-          );
-        if (action === "toggle-option" && value && typeof value === "object") {
-          const option = value as { key?: string; value?: boolean };
-          if (["toc", "cover", "pageNumber"].includes(option.key ?? ""))
-            setOptions((current) => ({
-              ...current,
-              [option.key!]: Boolean(option.value),
-            }));
+        return;
+
+      const request = { id: ++renderRequestId.current, key };
+      renderRequests.current.set(path, request);
+      let renderTimeout: number | undefined;
+      updateRenderState(path, {
+        status: "レンダリング中",
+        previewError: undefined,
+      });
+      try {
+        const [nextPreview, nextInspection] = await Promise.race([
+          Promise.all([
+            window.mdpdf.renderPreview(
+              currentDocument.content,
+              path,
+              currentOptions,
+            ),
+            window.mdpdf.inspect(currentDocument.content),
+          ]),
+          new Promise<never>((_, reject) => {
+            renderTimeout = window.setTimeout(
+              () => reject(new Error("プレビュー生成がタイムアウトしました")),
+              PREVIEW_RENDER_TIMEOUT_MS,
+            );
+          }),
+        ]);
+        const latestDocument = documentsRef.current.find(
+          (item) => item.path === path,
+        );
+        const latestOptions =
+          documentOptionsRef.current[path] ?? defaultOptionsRef.current;
+        const latestKey = latestDocument
+          ? previewRequestKey(path, latestDocument.content, latestOptions)
+          : undefined;
+        if (renderRequests.current.get(path) !== request || latestKey !== key)
+          return;
+        const autoFit =
+          canAutoFitNextPreview.current && activePathRef.current === path;
+        if (autoFit) canAutoFitNextPreview.current = false;
+        storePreviewEntry(path, {
+          key,
+          preview: nextPreview,
+          inspection: nextInspection,
+          autoFit,
+        });
+        updateRenderState(path, {
+          status: "更新済み",
+          previewError: undefined,
+        });
+      } catch (caught) {
+        if (renderRequests.current.get(path) === request) {
+          updateRenderState(path, {
+            status: "エラー",
+            previewError:
+              caught instanceof Error ? caught.message : String(caught),
+          });
         }
-        if (action === "document-settings") setShowingSettings(true);
-        if (action === "next-tab" || action === "previous-tab") {
-          const index = documents.findIndex(
-            (item) => item.path === document?.path,
-          );
-          const direction = action === "next-tab" ? 1 : -1;
-          const next = documents.at((index + direction) % documents.length);
-          if (next) void selectTab(next.path);
-        }
-        if (action === "show-tabs") setShowingHome(true);
-        if (action === "select-theme" && typeof value === "string")
-          setOptions((current) => ({ ...current, theme: value }));
-        if (action === "theme-create") void createTheme();
-        if (action === "theme-import") void importTheme();
-        if (action === "theme-manage") setShowingHome(true);
-        const activeTheme = themes.find((theme) => theme.id === options.theme);
-        if (action === "theme-edit" && activeTheme?.cssPath)
-          void window.mdpdf.editTheme(activeTheme.cssPath);
-        if (action === "theme-export" && activeTheme?.cssPath)
-          void window.mdpdf.exportTheme(activeTheme.cssPath);
-      }),
-    [document, documents, load, open, options, themes],
+      } finally {
+        window.clearTimeout(renderTimeout);
+        if (renderRequests.current.get(path) === request)
+          renderRequests.current.delete(path);
+      }
+    },
+    [storePreviewEntry, updateRenderState],
   );
-  useEffect(() => {
-    const timer = window.setTimeout(render, 180);
-    return () => window.clearTimeout(timer);
-  }, [render]);
-  useEffect(
-    () =>
-      window.mdpdf.onDocumentChanged(async (path) => {
-        if (document?.path === path) {
-          setStatus("変更を検出");
-          await load(await window.mdpdf.read(path));
-        }
-      }),
-    [document?.path, load],
+  const render = useCallback(
+    async (force = false) => {
+      const path = activePathRef.current;
+      if (path) await renderPath(path, force);
+    },
+    [renderPath],
   );
-  useEffect(
-    () => window.mdpdf.onWatchError(() => setWatchStatus("監視エラー")),
-    [],
+
+  const selectTab = useCallback(
+    async (path: string) => {
+      const cached = documentsRef.current.find((item) => item.path === path);
+      if (!cached) return;
+      const id = ++selectionId.current;
+      activateDocument(cached);
+      setShowingHome(false);
+      try {
+        const observedWatchErrorId = watchErrorIds.current.get(path) ?? 0;
+        const watching = await window.mdpdf.watch(path);
+        if (id !== selectionId.current) return;
+        if (
+          activePathRef.current === path &&
+          (watchErrorIds.current.get(path) ?? 0) === observedWatchErrorId
+        )
+          setWatchStatus(watching ? "監視中" : "監視エラー");
+        const observedChangeId = documentChangeIds.current.get(path) ?? 0;
+        const next = await window.mdpdf.read(path);
+        if (
+          !(await prepareDocument(
+            next,
+            () =>
+              id === selectionId.current &&
+              (documentChangeIds.current.get(path) ?? 0) === observedChangeId,
+          ))
+        )
+          return;
+        activateDocument(next);
+        setHistory(await window.mdpdf.history());
+      } catch (caught) {
+        if (id === selectionId.current)
+          updateRenderState(path, {
+            status: "エラー",
+            previewError:
+              caught instanceof Error ? caught.message : String(caught),
+          });
+      }
+    },
+    [activateDocument, prepareDocument, updateRenderState],
+  );
+  const closeTab = useCallback(
+    async (path: string) => {
+      if (activePathRef.current === path) selectionId.current += 1;
+      const current = documentsRef.current;
+      const index = current.findIndex((item) => item.path === path);
+      const remaining = current.filter((item) => item.path !== path);
+      storeDocuments(remaining);
+      renderRequests.current.delete(path);
+      documentChangeIds.current.set(
+        path,
+        (documentChangeIds.current.get(path) ?? 0) + 1,
+      );
+      documentOptionRequestIds.current.set(
+        path,
+        (documentOptionRequestIds.current.get(path) ?? 0) + 1,
+      );
+      documentOptionResolutions.current.delete(path);
+      documentOptionOverrides.current.delete(path);
+      const nextDocumentOptions = { ...documentOptionsRef.current };
+      delete nextDocumentOptions[path];
+      documentOptionsRef.current = nextDocumentOptions;
+      setDocumentOptionsState(nextDocumentOptions);
+      const nextPreviewEntries = { ...previewEntriesRef.current };
+      delete nextPreviewEntries[path];
+      previewEntriesRef.current = nextPreviewEntries;
+      setPreviewEntriesState(nextPreviewEntries);
+      setRenderStates((currentStates) => {
+        const nextStates = { ...currentStates };
+        delete nextStates[path];
+        return nextStates;
+      });
+      previewScroll.current.delete(path);
+      if (activePathRef.current !== path) return;
+      const next = remaining[Math.min(index, remaining.length - 1)];
+      if (next) {
+        await selectTab(next.path);
+      } else {
+        activateDocument(undefined);
+        await window.mdpdf.watch();
+        setWatchStatus("未監視");
+      }
+    },
+    [activateDocument, selectTab, storeDocuments],
   );
   const exportPdf = async () => {
-    if (!document) return;
-    setStatus("PDFを書き出し中");
+    const currentDocument = documentRef.current;
+    if (!currentDocument) return;
+    const path = currentDocument.path;
+    const currentOptions =
+      documentOptionsRef.current[path] ?? defaultOptionsRef.current;
+    updateRenderState(path, { status: "PDFを書き出し中" });
     setTab("Export");
     try {
       const next = await window.mdpdf.generatePdf(
-        document.content,
-        document.path,
-        options,
+        currentDocument.content,
+        path,
+        currentOptions,
       );
       if (next) {
         setResult(next);
-        setStatus("書き出し完了");
-      } else setStatus("キャンセル");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-      setStatus("エラー");
+        updateRenderState(path, { status: "書き出し完了" });
+      } else updateRenderState(path, { status: "キャンセル" });
+    } catch {
+      updateRenderState(path, {
+        status: "エラー",
+      });
     }
   };
-  const openLine = (line: number, column = 1) =>
-    document &&
-    window.mdpdf.openEditor(document.path, line, column, settings.editor);
+  const openLine = (line: number, column = 1) => {
+    const currentDocument = documentRef.current;
+    return (
+      currentDocument &&
+      window.mdpdf.openEditor(
+        currentDocument.path,
+        line,
+        column,
+        settings.editor,
+      )
+    );
+  };
   const drop = async (file: File) => {
     if (/\.(md|markdown)$/i.test(file.name))
-      await load(await window.mdpdf.read(window.mdpdf.filePath(file)));
+      await readAndLoad(window.mdpdf.filePath(file));
   };
   const isTabDropArea = (event: React.DragEvent) => {
     const tabs = event.currentTarget.querySelector(".document-tabs");
@@ -2989,36 +3165,8 @@ export function App() {
     event.preventDefault();
     void drop(file);
   };
-  const selectTab = async (path: string) => {
-    const existing = documents.find((item) => item.path === path);
-    if (existing) {
-      setDocument(existing);
-      setShowingHome(false);
-      setInspection(EMPTY_INSPECTION);
-      setError(undefined);
-      setWatchStatus(
-        (await window.mdpdf.watch(path)) ? "監視中" : "監視エラー",
-      );
-    }
-  };
-  const closeTab = async (path: string) => {
-    const index = documents.findIndex((item) => item.path === path);
-    const remaining = documents.filter((item) => item.path !== path);
-    setDocuments(remaining);
-    if (document?.path !== path) return;
-    const next = remaining[Math.min(index, remaining.length - 1)];
-    setDocument(next);
-    setError(undefined);
-    if (next)
-      setWatchStatus(
-        (await window.mdpdf.watch(next.path)) ? "監視中" : "監視エラー",
-      );
-    else {
-      await window.mdpdf.watch();
-      setWatchStatus("未監視");
-    }
-  };
   const createTheme = async () => {
+    const targetPath = activePathRef.current;
     const sourceTheme = themes.some((theme) => theme.id === options.theme)
       ? options.theme
       : "github";
@@ -3041,14 +3189,33 @@ export function App() {
         : undefined,
     );
     setThemes(await window.mdpdf.themes());
-    setOptions((current) => ({ ...current, theme: theme.id }));
+    if (targetPath)
+      updateDocumentOptions(targetPath, (current) => ({
+        ...current,
+        theme: theme.id,
+      }));
+    else
+      storeDefaultOptions({
+        ...defaultOptionsRef.current,
+        theme: theme.id,
+      });
     if (theme.cssPath) await window.mdpdf.editTheme(theme.cssPath);
   };
   const importTheme = async () => {
+    const targetPath = activePathRef.current;
     const theme = await window.mdpdf.importTheme();
     if (!theme) return;
     setThemes(await window.mdpdf.themes());
-    setOptions((current) => ({ ...current, theme: theme.id }));
+    if (targetPath)
+      updateDocumentOptions(targetPath, (current) => ({
+        ...current,
+        theme: theme.id,
+      }));
+    else
+      storeDefaultOptions({
+        ...defaultOptionsRef.current,
+        theme: theme.id,
+      });
   };
   const deleteTheme = async (theme: Theme) => {
     const message =
@@ -3061,11 +3228,16 @@ export function App() {
     setThemes(nextThemes);
     if (options.theme === theme.id)
       setOptions((current) => ({ ...current, theme: "github" }));
-    if (settings.defaultTheme === theme.id)
-      setSettings(await window.mdpdf.setDefaultTheme("github"));
+    if (settings.defaultTheme === theme.id) {
+      const nextSettings = await window.mdpdf.setDefaultTheme("github");
+      setSettings(nextSettings);
+      storeDefaultOptions(applicationOptions(nextSettings, nextThemes));
+    }
   };
   const setDefaultTheme = async (theme: Theme) => {
-    setSettings(await window.mdpdf.setDefaultTheme(theme.id));
+    const nextSettings = await window.mdpdf.setDefaultTheme(theme.id);
+    setSettings(nextSettings);
+    storeDefaultOptions(applicationOptions(nextSettings, themes));
   };
   const rememberPreviewScroll = useCallback(
     (path: string, position: { x: number; y: number }) => {
@@ -3074,8 +3246,169 @@ export function App() {
     [],
   );
   const updatePreviewZoom = useCallback((zoom: number) => {
+    canAutoFitNextPreview.current = false;
     setPreviewZoom(zoom);
   }, []);
+
+  useEffect(() => {
+    if (settings.language !== "en") return;
+    window.document.documentElement.lang = "en";
+    translateEnglishInterface(window.document.body);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "characterData")
+          translateEnglishInterface(record.target);
+        for (const node of record.addedNodes) translateEnglishInterface(node);
+      }
+    });
+    observer.observe(window.document.body, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [settings.language]);
+  useEffect(() => {
+    void initializeSettings();
+    window.mdpdf.history().then(setHistory).catch(console.error);
+    window.mdpdf.fonts().then(setFonts).catch(console.error);
+    window.mdpdf.editors().then(setEditors).catch(console.error);
+  }, [initializeSettings]);
+  useEffect(
+    () => window.mdpdf.onOpenSettings(() => setShowingSettings(true)),
+    [],
+  );
+  useEffect(() => {
+    void window.mdpdf.updateMenuDocumentOptions({
+      toc: options.toc,
+      cover: options.cover,
+      pageNumber: options.pageNumber,
+    });
+  }, [options.toc, options.cover, options.pageNumber]);
+  useEffect(() => {
+    const closePanesInNarrowWindow = () => {
+      if (window.innerWidth >= 1180) return;
+      setLeftPaneOpen(false);
+      setRightPaneOpen(false);
+    };
+    window.addEventListener("resize", closePanesInNarrowWindow);
+    closePanesInNarrowWindow();
+    return () => window.removeEventListener("resize", closePanesInNarrowWindow);
+  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => activePathRef.current && void renderPath(activePathRef.current),
+      180,
+    );
+    return () => window.clearTimeout(timer);
+  }, [document?.content, document?.path, options, renderPath]);
+  useEffect(
+    () =>
+      window.mdpdf.onDocumentChanged(async (path) => {
+        if (activePathRef.current !== path) return;
+        const changeId = (documentChangeIds.current.get(path) ?? 0) + 1;
+        documentChangeIds.current.set(path, changeId);
+        try {
+          const nextDocument = await window.mdpdf.read(path);
+          const latest = documentsRef.current.find(
+            (item) => item.path === path,
+          );
+          const contentChanged = nextDocument.content !== latest?.content;
+          const prepared = await prepareDocument(
+            nextDocument,
+            () =>
+              activePathRef.current === path &&
+              documentChangeIds.current.get(path) === changeId,
+          );
+          if (!prepared || !contentChanged) return;
+          updateRenderState(path, {
+            status: "変更を検出",
+            previewError: undefined,
+          });
+        } catch (caught) {
+          if (
+            activePathRef.current === path &&
+            documentChangeIds.current.get(path) === changeId
+          )
+            updateRenderState(path, {
+              status: "エラー",
+              previewError:
+                caught instanceof Error ? caught.message : String(caught),
+            });
+        }
+      }),
+    [prepareDocument, updateRenderState],
+  );
+  useEffect(
+    () =>
+      window.mdpdf.onWatchError((path) => {
+        watchErrorIds.current.set(
+          path,
+          (watchErrorIds.current.get(path) ?? 0) + 1,
+        );
+        if (activePathRef.current === path) setWatchStatus("監視エラー");
+      }),
+    [],
+  );
+  useEffect(
+    () =>
+      window.mdpdf.onMenuAction((action, value) => {
+        const currentDocument = documentRef.current;
+        if (action === "open") void open();
+        if (action === "new-tab") setShowingHome(true);
+        if (action === "open-recent" && typeof value === "string")
+          void readAndLoad(value);
+        if (action === "export") void exportPdf();
+        if (action === "open-editor" && currentDocument) void openLine(1);
+        if (action === "reveal" && currentDocument)
+          void window.mdpdf.reveal(currentDocument.path);
+        if (action.startsWith("zoom-"))
+          window.dispatchEvent(
+            new CustomEvent("inkframe:preview-command", { detail: action }),
+          );
+        if (action === "toggle-option" && value && typeof value === "object") {
+          const option = value as { key?: string; value?: boolean };
+          if (["toc", "cover", "pageNumber"].includes(option.key ?? ""))
+            setOptions((current) => ({
+              ...current,
+              [option.key!]: Boolean(option.value),
+            }));
+        }
+        if (action === "document-settings") setShowingSettings(true);
+        if (action === "next-tab" || action === "previous-tab") {
+          const currentDocuments = documentsRef.current;
+          const index = currentDocuments.findIndex(
+            (item) => item.path === currentDocument?.path,
+          );
+          const direction = action === "next-tab" ? 1 : -1;
+          const next = currentDocuments.at(
+            (index + direction) % currentDocuments.length,
+          );
+          if (next) void selectTab(next.path);
+        }
+        if (action === "show-tabs") setShowingHome(true);
+        if (action === "select-theme" && typeof value === "string")
+          setOptions((current) => ({ ...current, theme: value }));
+        if (action === "theme-create") void createTheme();
+        if (action === "theme-import") void importTheme();
+        if (action === "theme-manage") setShowingHome(true);
+        const activeTheme = themes.find((theme) => theme.id === options.theme);
+        if (action === "theme-edit" && activeTheme?.cssPath)
+          void window.mdpdf.editTheme(activeTheme.cssPath);
+        if (action === "theme-export" && activeTheme?.cssPath)
+          void window.mdpdf.exportTheme(activeTheme.cssPath);
+      }),
+    [
+      open,
+      options,
+      readAndLoad,
+      selectTab,
+      setOptions,
+      settings.editor,
+      settings.language,
+      themes,
+    ],
+  );
   useEffect(() => {
     const timeout = window.setTimeout(
       () =>
@@ -3087,6 +3420,7 @@ export function App() {
     );
     return () => window.clearTimeout(timeout);
   }, [previewZoom]);
+
   const home = (showAddButton = true) => (
     <Home
       history={history}
@@ -3097,7 +3431,7 @@ export function App() {
       onOpenFolder={() =>
         window.mdpdf.openFolder().then((next) => next && load(next))
       }
-      onRecent={(path) => window.mdpdf.read(path).then(load)}
+      onRecent={readAndLoad}
       onDrop={drop}
       onCreateTheme={createTheme}
       onImportTheme={importTheme}
@@ -3113,20 +3447,20 @@ export function App() {
   );
   const settingsDialog = showingSettings ? (
     <SettingsDialog
-      initialOptions={settings.defaultOptions ?? options}
+      initialOptions={defaultOptions}
       initialSettings={settings}
       themes={themes}
       fonts={fonts}
       editors={editors}
       onCancel={() => setShowingSettings(false)}
-      onSave={async (defaultOptions, preferences) => {
+      onSave={async (nextDefaultOptions, preferences) => {
         const languageChanged = preferences.language !== settings.language;
         const nextSettings = await window.mdpdf.setDefaultOptions(
-          defaultOptions,
+          nextDefaultOptions,
           preferences,
         );
         setSettings(nextSettings);
-        setOptions(defaultOptions);
+        storeDefaultOptions(applicationOptions(nextSettings, themes));
         setShowingSettings(false);
         if (languageChanged) window.location.reload();
       }}
@@ -3150,7 +3484,7 @@ export function App() {
       onClose={closeTab}
       onOpenEditor={() => openLine(1)}
       onReveal={() => window.mdpdf.reveal(document.path)}
-      onRefresh={render}
+      onRefresh={() => void render(true)}
       onExport={exportPdf}
       leftPaneOpen={leftPaneOpen}
       rightPaneOpen={rightPaneOpen}
@@ -3188,29 +3522,33 @@ export function App() {
               )
             }
             language={settings.language ?? "en"}
-            onHistory={(path) => window.mdpdf.read(path).then(load)}
+            onHistory={readAndLoad}
           />
         )}
         <div className="preview-stack">
-          {documents.map((openDocument) => (
-            <PdfPreviewPane
-              key={openDocument.path}
-              preview={previews[openDocument.path]}
-              status={openDocument.path === document.path ? status : "待機中"}
-              error={openDocument.path === document.path ? error : undefined}
-              active={openDocument.path === document.path}
-              fitOnFirstRender={Boolean(previewAutoFit[openDocument.path])}
-              zoom={previewZoom}
-              onZoom={updatePreviewZoom}
-              fontOptions={options}
-              initialScroll={
-                previewScroll.current.get(openDocument.path) ?? { x: 0, y: 0 }
-              }
-              onScroll={(position) =>
-                rememberPreviewScroll(openDocument.path, position)
-              }
-            />
-          ))}
+          {documents.map((openDocument) => {
+            const entry = previewEntries[openDocument.path];
+            const renderState = renderStates[openDocument.path];
+            return (
+              <PdfPreviewPane
+                key={openDocument.path}
+                preview={entry?.preview}
+                status={renderState?.status ?? "待機中"}
+                error={renderState?.previewError}
+                active={openDocument.path === document.path}
+                fitOnFirstRender={Boolean(entry?.autoFit)}
+                zoom={previewZoom}
+                onZoom={updatePreviewZoom}
+                onInitialFit={() => consumePreviewAutoFit(openDocument.path)}
+                initialScroll={
+                  previewScroll.current.get(openDocument.path) ?? { x: 0, y: 0 }
+                }
+                onScroll={(position) =>
+                  rememberPreviewScroll(openDocument.path, position)
+                }
+              />
+            );
+          })}
         </div>
         {rightPaneOpen && (
           <RightInspector

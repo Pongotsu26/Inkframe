@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
 import {
-  cp,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -16,6 +16,10 @@ import { PDFDocument } from "pdf-lib";
 import { chromium } from "playwright";
 import { findConfig, mergeConfig, readUserConfig } from "./config.js";
 import { markdownToHtml } from "./html.js";
+import {
+  assertOutputDoesNotOverwriteInputs,
+  pdfOutputPathFor,
+} from "./output-path.js";
 import { pageDimensionsPoints, pageSizeCss } from "./page-size.js";
 import { DEFAULT_CODE_THEME, type MdpdfConfig, type Paper } from "./types.js";
 
@@ -124,28 +128,47 @@ async function ghostscript(args: string[]): Promise<void> {
   }
 }
 
+async function writePdfAtomically(
+  outputPath: string,
+  writeTemporaryPdf: (temporaryOutput: string) => Promise<void>,
+): Promise<void> {
+  const resolvedOutput = resolve(outputPath);
+  await mkdir(dirname(resolvedOutput), { recursive: true });
+  const temporaryDirectory = await mkdtemp(
+    join(dirname(resolvedOutput), ".inkframe-output-"),
+  );
+  const temporaryOutput = join(temporaryDirectory, "output.pdf");
+  try {
+    await writeTemporaryPdf(temporaryOutput);
+    await rename(temporaryOutput, resolvedOutput);
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
 export async function mergePdfs(
   inputs: string[],
   outputPath: string,
 ): Promise<void> {
   if (inputs.length === 0) throw new Error("結合する PDF を指定してください。");
-  await mkdir(dirname(outputPath), { recursive: true });
-  await ghostscript([
-    "-q",
-    "-dBATCH",
-    "-dNOPAUSE",
-    "-sDEVICE=pdfwrite",
-    `-sOutputFile=${outputPath}`,
-    ...inputs,
-  ]);
+  await assertOutputDoesNotOverwriteInputs(inputs, outputPath);
+  await writePdfAtomically(outputPath, (temporaryOutput) =>
+    ghostscript([
+      "-q",
+      "-dBATCH",
+      "-dNOPAUSE",
+      "-sDEVICE=pdfwrite",
+      `-sOutputFile=${temporaryOutput}`,
+      ...inputs,
+    ]),
+  );
 }
 
-export async function compressPdf(
+async function writeCompressedPdf(
   inputPath: string,
   outputPath: string,
   imageQuality?: number,
 ): Promise<void> {
-  await mkdir(dirname(outputPath), { recursive: true });
   const quality = Math.max(1, Math.min(100, imageQuality ?? 85));
   const resolution = Math.round(72 + quality * 1.8);
   await ghostscript([
@@ -165,105 +188,120 @@ export async function compressPdf(
   ]);
 }
 
+export async function compressPdf(
+  inputPath: string,
+  outputPath: string,
+  imageQuality?: number,
+): Promise<void> {
+  await assertOutputDoesNotOverwriteInputs([inputPath], outputPath);
+  await writePdfAtomically(outputPath, (temporaryOutput) =>
+    writeCompressedPdf(inputPath, temporaryOutput, imageQuality),
+  );
+}
+
+async function optimizePdfInPlace(
+  outputPath: string,
+  imageQuality?: number,
+): Promise<void> {
+  await writePdfAtomically(outputPath, (temporaryOutput) =>
+    writeCompressedPdf(outputPath, temporaryOutput, imageQuality),
+  );
+}
+
 /** Convert one Markdown document entirely on the local machine. */
 export async function convertMarkdown(
   input: string,
   options: ConvertOptions = {},
 ): Promise<string> {
   const inputPath = resolve(input);
-  const outputPath = resolve(
-    options.output ?? inputPath.replace(/\.(?:md|markdown)$/i, ".pdf"),
-  );
+  const outputPath = resolve(options.output ?? pdfOutputPathFor(inputPath));
+  await assertOutputDoesNotOverwriteInputs([inputPath], outputPath);
   const settings = await resolvedConfig(inputPath, options);
   const document = await markdownToHtml(inputPath, settings);
   const pageSize = pageSizeCss(
     settings.paper ?? "A4",
     settings.orientation ?? "portrait",
   );
-  await mkdir(dirname(outputPath), { recursive: true });
-
-  let browser;
-  try {
-    browser = await chromium.launch({ headless: true });
-  } catch (error) {
-    throw new Error(
-      `Chromium を起動できません。\`npx playwright install chromium\` を実行してください。\n${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  try {
-    const page = await browser.newPage();
-    if (!settings.allowExternalResources) {
-      await page.route("**/*", (route) =>
-        /^(?:file:|data:|blob:|about:)/.test(route.request().url())
-          ? route.continue()
-          : route.abort(),
+  await writePdfAtomically(outputPath, async (temporaryOutput) => {
+    let browser;
+    try {
+      browser = await chromium.launch({ headless: true });
+    } catch (error) {
+      throw new Error(
+        `Chromium を起動できません。\`npx playwright install chromium\` を実行してください。\n${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    const printDocument = document.html.replace(
-      "</head>",
-      `<style id="inkframe-print-page-size">@page { size: ${pageSize}; }</style></head>`,
-    );
-    await page.setContent(printDocument, { waitUntil: "load" });
-    if (
-      settings.mermaid !== false &&
-      document.html.includes('class="mermaid"')
-    ) {
-      await page.addScriptTag({ path: document.mermaidScriptPath });
-      await page.evaluate(async () => {
-        const mermaid = (
-          window as unknown as {
-            mermaid: {
-              initialize: (config: object) => void;
-              run: () => Promise<void>;
-            };
-          }
-        ).mermaid;
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: "strict",
-          theme: "neutral",
+    try {
+      const page = await browser.newPage();
+      if (!settings.allowExternalResources) {
+        await page.route("**/*", (route) =>
+          /^(?:file:|data:|blob:|about:)/.test(route.request().url())
+            ? route.continue()
+            : route.abort(),
+        );
+      }
+      const printDocument = document.html.replace(
+        "</head>",
+        `<style id="inkframe-print-page-size">@page { size: ${pageSize}; }</style></head>`,
+      );
+      await page.setContent(printDocument, { waitUntil: "load" });
+      if (
+        settings.mermaid !== false &&
+        document.html.includes('class="mermaid"')
+      ) {
+        await page.addScriptTag({ path: document.mermaidScriptPath });
+        await page.evaluate(async () => {
+          const mermaid = (
+            window as unknown as {
+              mermaid: {
+                initialize: (config: object) => void;
+                run: () => Promise<void>;
+              };
+            }
+          ).mermaid;
+          mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: "strict",
+            theme: "neutral",
+          });
+          await mermaid.run();
         });
-        await mermaid.run();
+      }
+      await page.evaluate(() => window.document.fonts.ready);
+      await page.pdf({
+        path: temporaryOutput,
+        printBackground: true,
+        preferCSSPageSize: true,
+        margin: margins(settings.margin ?? "18mm"),
+        displayHeaderFooter: Boolean(
+          settings.pageNumber || settings.header || settings.footer,
+        ),
+        headerTemplate: headerTemplate(settings.header),
+        footerTemplate: footerTemplate(
+          settings.footer,
+          settings.pageNumber,
+          settings.pageNumberFormat,
+          settings.pageNumberFont?.face ?? settings.pageNumberFont?.family,
+        ),
+        tagged: true,
+        outline: true,
       });
+    } finally {
+      await browser.close();
     }
-    await page.evaluate(() => window.document.fonts.ready);
-    await page.pdf({
-      path: outputPath,
-      printBackground: true,
-      preferCSSPageSize: true,
-      margin: margins(settings.margin ?? "18mm"),
-      displayHeaderFooter: Boolean(
-        settings.pageNumber || settings.header || settings.footer,
-      ),
-      headerTemplate: headerTemplate(settings.header),
-      footerTemplate: footerTemplate(
-        settings.footer,
-        settings.pageNumber,
-        settings.pageNumberFormat,
-        settings.pageNumberFont?.face ?? settings.pageNumberFont?.family,
-      ),
-      tagged: true,
-      outline: true,
-    });
-  } finally {
-    await browser.close();
-  }
 
-  if (options.compress || options.imageOptimize) {
-    const temporary = `${outputPath}.optimized.pdf`;
-    await compressPdf(
-      outputPath,
-      temporary,
-      options.imageOptimize ? options.imageQuality : undefined,
+    if (options.compress || options.imageOptimize) {
+      await optimizePdfInPlace(
+        temporaryOutput,
+        options.imageOptimize ? options.imageQuality : undefined,
+      );
+    }
+    await normalizePdfPageSize(
+      temporaryOutput,
+      settings.paper ?? "A4",
+      settings.orientation ?? "portrait",
     );
-    await cp(temporary, outputPath);
-    await rm(temporary, { force: true });
-  }
-  await normalizePdfPageSize(
-    outputPath,
-    settings.paper ?? "A4",
-    settings.orientation ?? "portrait",
-  );
+  });
   return outputPath;
 }
 
@@ -274,6 +312,8 @@ export async function buildMarkdownFiles(
 ): Promise<string> {
   if (inputs.length === 0)
     throw new Error("結合する Markdown ファイルを指定してください。");
+  const outputPath = resolve(output);
+  await assertOutputDoesNotOverwriteInputs(inputs, outputPath);
   const temporary = await mkdtemp(join(tmpdir(), "mdpdf-build-"));
   try {
     const generated: string[] = [];
@@ -288,17 +328,13 @@ export async function buildMarkdownFiles(
         }),
       );
     }
-    const outputPath = resolve(output);
     await mergePdfs(generated, outputPath);
-    if (options.compress || options.imageOptimize)
-      await compressPdf(
+    if (options.compress || options.imageOptimize) {
+      await optimizePdfInPlace(
         outputPath,
-        `${outputPath}.optimized.pdf`,
         options.imageOptimize ? options.imageQuality : undefined,
-      ).then(async () => {
-        await cp(`${outputPath}.optimized.pdf`, outputPath);
-        await rm(`${outputPath}.optimized.pdf`, { force: true });
-      });
+      );
+    }
     return outputPath;
   } finally {
     await rm(temporary, { recursive: true, force: true });

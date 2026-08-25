@@ -763,19 +763,22 @@ input[type="range"] {
   display: block;
 }
 .rendering-banner {
-  position: sticky;
-  top: 0;
+  position: absolute;
+  top: 12px;
+  left: 50%;
   z-index: 3;
   display: flex;
   align-items: center;
   width: max-content;
-  margin: 0 auto 12px;
+  margin: 0;
   padding: 6px 10px;
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
   background: var(--bg-panel-elevated);
   color: var(--text-secondary);
   box-shadow: var(--paper-shadow);
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 .rendering-banner i {
   width: 8px;
@@ -784,6 +787,9 @@ input[type="range"] {
   border-radius: 50%;
   background: var(--accent);
   animation: pulse 1s infinite alternate;
+}
+.pdf-rendering-banner {
+  top: 46px;
 }
 @keyframes pulse {
   to {
@@ -805,6 +811,20 @@ input[type="range"] {
 .preview-error span {
   margin-top: 5px;
   color: var(--text-secondary);
+}
+.stale-preview-error {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  z-index: 4;
+  margin: 0;
+  transform: translateX(-50%);
+  box-shadow: var(--paper-shadow);
+}
+.stale-preview-error small {
+  display: block;
+  margin-top: 8px;
+  color: var(--warning);
 }
 .zoom-controls {
   position: absolute;
