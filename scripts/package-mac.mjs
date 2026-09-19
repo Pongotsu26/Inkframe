@@ -5,7 +5,6 @@ import path from "node:path";
 const candidates = [
   process.env.DEVELOPER_DIR,
   "/Applications/Xcode.app/Contents/Developer",
-  "/Applications/Xcode-beta.app/Contents/Developer",
 ].filter(Boolean);
 
 const developerDir = candidates.find((candidate) =>
@@ -13,7 +12,7 @@ const developerDir = candidates.find((candidate) =>
 );
 if (!developerDir) {
   console.error(
-    "Xcode 26以降が見つかりません。Xcode.app または Xcode-beta.app を /Applications に配置してください。",
+    "Xcode 26以降が見つかりません。Xcode.app を /Applications に配置してください。",
   );
   process.exit(1);
 }
