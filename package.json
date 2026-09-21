@@ -1,6 +1,5 @@
 {
   "name": "inkframe",
-  "productName": "Inkframe",
   "version": "2026.8.0",
   "description": "A local-first Markdown-to-PDF CLI for polished documents",
   "author": "Pongotsu26",
@@ -22,71 +21,15 @@
     "dist/types.*",
     "themes",
     "LICENSE",
-    "BRAND_ASSETS.md",
     "THIRD_PARTY_NOTICES.md"
   ],
-  "build": {
-    "appId": "dev.inkframe.app",
-    "productName": "Inkframe",
-    "extraMetadata": {
-      "main": "./dist/desktop/main.js"
-    },
-    "directories": {
-      "output": "release"
-    },
-    "extraResources": [
-      {
-        "from": "LICENSE",
-        "to": "legal/LICENSE"
-      },
-      {
-        "from": "BRAND_ASSETS.md",
-        "to": "legal/BRAND_ASSETS.md"
-      },
-      {
-        "from": "THIRD_PARTY_NOTICES.md",
-        "to": "legal/THIRD_PARTY_NOTICES.md"
-      },
-      {
-        "from": "node_modules/electron/dist/LICENSE",
-        "to": "legal/ELECTRON_LICENSE"
-      },
-      {
-        "from": "node_modules/electron/dist/LICENSES.chromium.html",
-        "to": "legal/LICENSES.chromium.html"
-      }
-    ],
-    "mac": {
-      "icon": "assets/Inkframe.icon"
-    },
-    "dmg": {
-      "icon": "assets/icon.icns"
-    },
-    "linux": {
-      "icon": "assets/icon.png"
-    },
-    "win": {
-      "icon": "assets/icon.png"
-    }
-  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "build:desktop": "pnpm build && tsc -p tsconfig.desktop.json && pnpm renderer:build",
-    "renderer:build": "vite build",
-    "renderer:dev": "vite",
-    "icon:build": "magick -background none assets/icon.svg -alpha on -depth 8 -define png:color-type=6 assets/icon.png && png2icons assets/icon.png assets/icon -icns -bc",
     "legal:generate": "node scripts/generate-third-party-notices.mjs",
-    "prepackage:mac": "pnpm legal:generate",
-    "package:mac": "node scripts/package-mac.mjs",
-    "theme:extract": "node scripts/theme-tokens-to-css.mjs design/inkframe-dark.tokens.json src/renderer/src/styles/inkframe-theme.css",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
-    "desktop": "pnpm build:desktop && electron dist/desktop/main.js",
     "test": "vitest run --config vitest.config.ts",
-    "test:desktop": "vitest run --config vitest.desktop.config.ts",
-    "test:all": "pnpm test && pnpm test:desktop",
-    "check": "tsc --noEmit",
-    "check:desktop": "tsc -p tsconfig.desktop.json --noEmit"
+    "check": "tsc --noEmit"
   },
   "engines": {
     "node": ">=20"
@@ -110,18 +53,9 @@
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.3",
-    "electron": "^43.1.0",
-    "electron-builder": "^26.15.3",
     "pdfjs-dist": "^6.1.200",
-    "png2icons": "^2.0.1",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
-    "vite": "^8.1.4",
     "vitest": "^3.2.4"
   }
 }

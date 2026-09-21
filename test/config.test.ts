@@ -42,7 +42,7 @@ describe("CLI user defaults", () => {
     );
   });
 
-  it("Electron版と同じ組み込み初期値を使う", async () => {
+  it("組み込み初期値を使う", async () => {
     const directory = await mkdtemp(join(tmpdir(), "inkframe-defaults-"));
     const input = join(directory, "sample.md");
     await writeFile(input, "# Sample");

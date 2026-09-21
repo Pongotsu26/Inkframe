@@ -55,24 +55,6 @@ inkframe merge a.pdf b.pdf -o merged.pdf
 
 `--compress`、`--image-optimize`、`build`、`merge` は Ghostscript を利用します。macOS では `brew install ghostscript`、Windows/Linux では OS のパッケージ管理機能で Ghostscript を導入してください。
 
-## Desktop 版（開発停止）
-
-Electron 製Desktop版の開発・配布・サポートは終了しました。最終版は `v2026.7.3` です。コードは参照用および既存環境での再現用としてリポジトリに残していますが、今後の機能追加・不具合修正・セキュリティ更新は行いません。
-
-以下のコマンドは凍結したDesktop版をローカルで再現するために残しています。通常の `pnpm build`、`pnpm check`、`pnpm test` はCLIだけを対象とします。
-
-```bash
-pnpm desktop
-```
-
-アプリアイコンは `assets/icon.svg` をフラット版の正本とし、ImageMagick導入後に `pnpm icon:build` で1024px PNGとRetina対応ICNSを再生成できます。macOS 26以降のLiquid Glass版は `assets/Inkframe.icon` に背景・フレーム・紙・組版記号を分離したIcon Composerレイヤーとして収録しています。`pnpm package:mac` は `/Applications/Xcode.app` のXcode 26以降を自動検出し、electron-builderで `.icon` を `Assets.car` へコンパイルします。
-
-Desktop版は、PDF出力と同じHTML/CSSをページ分割したプレビュー、テーマ・用紙・余白・フォントの選択、PDFワンクリック生成を提供します。Markdownをドロップして開けるほか、アウトライン・Issues・Assets・履歴を確認できます。設定や履歴はOSのアプリデータ領域にローカル保存され、Markdownを外部送信しません。
-
-トップ画面または「Style」タブの「テーマを追加」では、現在のテーマのCSSを複製し、VS Code（または既定のエディタ）で直接編集できます。作成したテーマはアプリデータ領域へ保存され、次回以降もテーマ一覧から再利用できます。カスタムテーマはCSSまたは `.inkframe-theme.json` から読み込みでき、単一の `.inkframe-theme.json` ファイルとして書き出せます。カード右上の星をクリックすると、新しく開く文書へ適用するデフォルトテーマとして保存されます。
-
-ページプレビューはアプリに同梱したPaged.jsでHTMLを直接組版するため、拡大しても文字や図形が鮮明です。Popplerなどの外部ツールは不要です。
-
 主なオプション:
 
 - `--theme github|university|technical|paper|minutes|slides|ebook|monochrome|vertical-japanese|resume`: テーマを選択
@@ -119,7 +101,7 @@ inkframe config options font-face "BIZ UDPGothic"
 inkframe config reset
 ```
 
-入力ファイルの親ディレクトリから上へ `inkframe.config.json` またはJSON形式の `.inkframerc` も探索します。旧名の `mdpdf.config.json` と `.mdpdfrc` は互換性のため読み込めます。設定の優先順位は、Electron版と揃えた組み込み既定値 → ユーザー共通設定 → プロジェクト設定 → YAML frontmatter → CLI引数です。
+入力ファイルの親ディレクトリから上へ `inkframe.config.json` またはJSON形式の `.inkframerc` も探索します。旧名の `mdpdf.config.json` と `.mdpdfrc` は互換性のため読み込めます。設定の優先順位は、組み込み既定値 → ユーザー共通設定 → プロジェクト設定 → YAML frontmatter → CLI引数です。
 
 ```json
 {
@@ -163,10 +145,8 @@ Chromium が実際に使用したローカルフォントは PDF に埋め込ま
 
 変換はローカルで完結し、Markdown を外部へ送信しません。外部 URL のリソース読み込みは既定で遮断し、必要な場合だけ `--allow-external-resources` を指定します。Mermaid は Chromium 内で `securityLevel: strict` を指定して描画します。HTML 混在ではスクリプト・埋め込み・イベント属性を除去しますが、信頼できない Markdown は変換しないでください。
 
-現在はCLI版のみを開発・サポートしています。Desktop版は `v2026.7.3` を最後に開発を停止し、Editor連携とCloud機能は計画していません。
+InkframeはCLIツールとして開発・サポートしています。
 
 ## ライセンス
 
-Inkframeのソースコードは[MIT License](./LICENSE)で公開しています。依存ソフトウェアの著作権とライセンスは[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)を参照してください。
-
-Inkframeの名称、ロゴ、アプリケーションアイコンはMIT Licenseの対象外です。未変更のInkframeビルドを再配布する場合を除き、派生プロダクトでは別の名称と独自のロゴ・アイコンを使用してください。詳細は[BRAND_ASSETS.md](./BRAND_ASSETS.md)を参照してください。
+Inkframeは[MIT License](./LICENSE)で公開しています。依存ソフトウェアの著作権とライセンスは[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)を参照してください。
