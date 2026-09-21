@@ -24,7 +24,7 @@ function run(command, args, env = process.env) {
 }
 
 console.log(`Using Xcode: ${developerDir}`);
-run("pnpm", ["build"]);
+run("pnpm", ["build:desktop"]);
 const builderArgs = process.argv.slice(2).filter((arg) => arg !== "--");
 run("pnpm", ["exec", "electron-builder", "--mac", ...builderArgs], {
   ...process.env,

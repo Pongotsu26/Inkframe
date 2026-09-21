@@ -1,6 +1,6 @@
 # Inkframe
 
-Markdownを、美しく読みやすいPDFへ。Inkframeはローカル環境で完結するTypeScript製の組版スタジオです。日本語フォント、GFM、KaTeX、Mermaid、目次、ページ番号に対応します。
+Markdownを、美しく読みやすいPDFへ。Inkframeはローカル環境で完結するTypeScript製のMarkdown-to-PDF CLIです。日本語フォント、GFM、KaTeX、Mermaid、目次、ページ番号に対応します。
 
 ## セットアップ
 
@@ -55,9 +55,11 @@ inkframe merge a.pdf b.pdf -o merged.pdf
 
 `--compress`、`--image-optimize`、`build`、`merge` は Ghostscript を利用します。macOS では `brew install ghostscript`、Windows/Linux では OS のパッケージ管理機能で Ghostscript を導入してください。
 
-## Desktop 版（Phase 3）
+## Desktop 版（開発停止）
 
-Electron 製のローカル Desktop アプリを起動できます。
+Electron 製Desktop版の開発・配布・サポートは終了しました。最終版は `v2026.7.3` です。コードは参照用および既存環境での再現用としてリポジトリに残していますが、今後の機能追加・不具合修正・セキュリティ更新は行いません。
+
+以下のコマンドは凍結したDesktop版をローカルで再現するために残しています。通常の `pnpm build`、`pnpm check`、`pnpm test` はCLIだけを対象とします。
 
 ```bash
 pnpm desktop
@@ -161,7 +163,7 @@ Chromium が実際に使用したローカルフォントは PDF に埋め込ま
 
 変換はローカルで完結し、Markdown を外部へ送信しません。外部 URL のリソース読み込みは既定で遮断し、必要な場合だけ `--allow-external-resources` を指定します。Mermaid は Chromium 内で `securityLevel: strict` を指定して描画します。HTML 混在ではスクリプト・埋め込み・イベント属性を除去しますが、信頼できない Markdown は変換しないでください。
 
-Phase 1〜3（CLI MVP、実用 CLI、Desktop 版）を実装しています。Editor 連携と Cloud 機能は次フェーズの範囲です。
+現在はCLI版のみを開発・サポートしています。Desktop版は `v2026.7.3` を最後に開発を停止し、Editor連携とCloud機能は計画していません。
 
 ## ライセンス
 

@@ -1,21 +1,26 @@
 {
   "name": "inkframe",
   "productName": "Inkframe",
-  "version": "2026.7.3",
-  "description": "A local-first Markdown typesetting studio for polished PDFs",
+  "version": "2026.8.0",
+  "description": "A local-first Markdown-to-PDF CLI for polished documents",
   "author": "Pongotsu26",
   "license": "MIT",
   "packageManager": "pnpm@11.9.0",
   "type": "module",
-  "main": "./dist/desktop/main.js",
   "bin": {
     "inkframe": "./dist/cli.js"
   },
   "files": [
-    "dist",
+    "dist/cli.*",
+    "dist/config.*",
+    "dist/fonts.*",
+    "dist/html.*",
+    "dist/output-path.*",
+    "dist/page-size.*",
+    "dist/renderer.*",
+    "dist/themes.*",
+    "dist/types.*",
     "themes",
-    "desktop",
-    "assets",
     "LICENSE",
     "BRAND_ASSETS.md",
     "THIRD_PARTY_NOTICES.md"
@@ -23,6 +28,9 @@
   "build": {
     "appId": "dev.inkframe.app",
     "productName": "Inkframe",
+    "extraMetadata": {
+      "main": "./dist/desktop/main.js"
+    },
     "directories": {
       "output": "release"
     },
@@ -62,7 +70,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && pnpm renderer:build",
+    "build": "tsc -p tsconfig.json",
+    "build:desktop": "pnpm build && tsc -p tsconfig.desktop.json && pnpm renderer:build",
     "renderer:build": "vite build",
     "renderer:dev": "vite",
     "icon:build": "magick -background none assets/icon.svg -alpha on -depth 8 -define png:color-type=6 assets/icon.png && png2icons assets/icon.png assets/icon -icns -bc",
@@ -72,9 +81,12 @@
     "theme:extract": "node scripts/theme-tokens-to-css.mjs design/inkframe-dark.tokens.json src/renderer/src/styles/inkframe-theme.css",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
-    "desktop": "pnpm build && electron .",
+    "desktop": "pnpm build:desktop && electron dist/desktop/main.js",
     "test": "vitest run --config vitest.config.ts",
-    "check": "tsc --noEmit"
+    "test:desktop": "vitest run --config vitest.desktop.config.ts",
+    "test:all": "pnpm test && pnpm test:desktop",
+    "check": "tsc --noEmit",
+    "check:desktop": "tsc -p tsconfig.desktop.json --noEmit"
   },
   "engines": {
     "node": ">=20"
@@ -86,10 +98,7 @@
     "mermaid": "^11.12.1",
     "pagedjs": "^0.4.3",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^6.1.200",
     "playwright": "^1.55.0",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
     "rehype-katex": "^7.0.1",
     "rehype-stringify": "^10.0.1",
     "remark-gfm": "^4.0.1",
@@ -106,7 +115,10 @@
     "@vitejs/plugin-react": "^6.0.3",
     "electron": "^43.1.0",
     "electron-builder": "^26.15.3",
+    "pdfjs-dist": "^6.1.200",
     "png2icons": "^2.0.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vite": "^8.1.4",

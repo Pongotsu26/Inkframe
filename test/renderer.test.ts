@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import {
   convertMarkdown,
@@ -22,6 +22,21 @@ import {
 } from "../src/renderer.js";
 
 describe("Phase 2 renderer utilities", () => {
+  let originalConfigHome: string | undefined;
+
+  beforeEach(async () => {
+    originalConfigHome = process.env.INKFRAME_CONFIG_HOME;
+    process.env.INKFRAME_CONFIG_HOME = await mkdtemp(
+      join(tmpdir(), "inkframe-renderer-config-"),
+    );
+  });
+
+  afterEach(() => {
+    if (originalConfigHome === undefined)
+      delete process.env.INKFRAME_CONFIG_HOME;
+    else process.env.INKFRAME_CONFIG_HOME = originalConfigHome;
+  });
+
   it("フォルダ内の Markdown を再帰的に列挙する", async () => {
     const directory = await mkdtemp(join(tmpdir(), "mdpdf-batch-"));
     await mkdir(join(directory, "nested"));
