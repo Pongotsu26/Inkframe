@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, extname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import matter from "gray-matter";
 import { PDFDocument } from "pdf-lib";
@@ -244,7 +245,11 @@ export async function convertMarkdown(
         "</head>",
         `<style id="inkframe-print-page-size">@page { size: ${pageSize}; }</style></head>`,
       );
-      await page.setContent(printDocument, { waitUntil: "load" });
+      // Use a file document so Chromium can load local images and fonts.
+      // The HTML base URL still resolves resources relative to the Markdown.
+      const htmlPath = join(dirname(temporaryOutput), "document.html");
+      await writeFile(htmlPath, printDocument);
+      await page.goto(pathToFileURL(htmlPath).href, { waitUntil: "load" });
       if (
         settings.mermaid !== false &&
         document.html.includes('class="mermaid"')

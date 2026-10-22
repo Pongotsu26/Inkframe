@@ -7,9 +7,11 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { pathToFileURL } from "node:url";
+import { getDocument, OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import {
@@ -20,6 +22,11 @@ import {
   paper,
   resolvedConfig,
 } from "../src/renderer.js";
+
+const RED_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAACUAAAAXCAIAAAADThHyAAAAJ0lEQVR4nOzNMQ0AAAgDMELwbxkccO5qDXS2orqyfD6fz+fz+Xy/AwAA//+u7JJRAAAABklEQVQDABVGATCacDxcAAAAAElFTkSuQmCC",
+  "base64",
+);
 
 describe("Phase 2 renderer utilities", () => {
   let originalConfigHome: string | undefined;
@@ -133,6 +140,105 @@ describe("Phase 2 renderer utilities", () => {
       await loadingTask.destroy();
     }
   }, 30_000);
+
+  it.each(["relative", "absolute", "file-url", "data-url", "svg"])(
+    "%s の画像をPDFに埋め込む",
+    async (sourceType) => {
+      const directory = await mkdtemp(join(tmpdir(), "inkframe-images-"));
+      const imageDirectory = join(directory, "画像 assets");
+      await mkdir(imageDirectory);
+      const image = join(imageDirectory, "赤 #1.png");
+      await writeFile(image, RED_PNG);
+      await writeFile(
+        join(directory, "image.svg"),
+        `<svg xmlns="http://www.w3.org/2000/svg" width="37" height="23"><image href="data:image/png;base64,${RED_PNG.toString("base64")}" width="37" height="23"/></svg>`,
+      );
+      const sources: Record<string, string> = {
+        relative: "画像%20assets/赤%20%231.png",
+        svg: "image.svg",
+        absolute: pathToFileURL(image).pathname,
+        "file-url": pathToFileURL(image).href,
+        "data-url": `data:image/png;base64,${RED_PNG.toString("base64")}`,
+      };
+      const input = join(directory, "images.md");
+      const output = join(directory, "pdf", "images.pdf");
+      await writeFile(input, `![図 1: 赤い画像](${sources[sourceType]})`);
+
+      await convertMarkdown(input, { output, theme: "github" });
+
+      const loadingTask = getDocument({
+        data: new Uint8Array(await readFile(output)),
+      });
+      try {
+        const pdf = await loadingTask.promise;
+        const page = await pdf.getPage(1);
+        const operators = await page.getOperatorList();
+        const imageIndex = operators.fnArray.indexOf(OPS.paintImageXObject);
+        expect(imageIndex).toBeGreaterThanOrEqual(0);
+        expect(operators.argsArray[imageIndex].slice(1)).toEqual([37, 23]);
+        const text = await page.getTextContent();
+        expect(
+          text.items
+            .map((item) => ("str" in item ? item.str : ""))
+            .join("")
+            .normalize("NFKC"),
+        ).toContain("図 1: 赤い画像");
+      } finally {
+        await loadingTask.destroy();
+      }
+    },
+    30_000,
+  );
+
+  it.each([false, true])(
+    "外部画像はallowExternalResources=%sに従って読み込む",
+    async (allowExternalResources) => {
+      let requests = 0;
+      const server = createServer((_request, response) => {
+        requests += 1;
+        response.writeHead(200, { "Content-Type": "image/png" });
+        response.end(RED_PNG);
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      try {
+        const address = server.address();
+        if (!address || typeof address === "string")
+          throw new Error("Test server address is unavailable.");
+        const directory = await mkdtemp(join(tmpdir(), "inkframe-external-image-"));
+        const input = join(directory, "image.md");
+        const output = join(directory, "image.pdf");
+        await writeFile(
+          input,
+          `![External image](http://127.0.0.1:${address.port}/image.png)`,
+        );
+
+        await convertMarkdown(input, { output, allowExternalResources });
+
+        expect(requests).toBe(allowExternalResources ? 1 : 0);
+        const loadingTask = getDocument({
+          data: new Uint8Array(await readFile(output)),
+        });
+        try {
+          const pdf = await loadingTask.promise;
+          const page = await pdf.getPage(1);
+          const operators = await page.getOperatorList();
+          const hasTestImage = operators.fnArray.some((operation, index) =>
+            operation === OPS.paintImageXObject &&
+            operators.argsArray[index][1] === 37 &&
+            operators.argsArray[index][2] === 23,
+          );
+          expect(hasTestImage).toBe(allowExternalResources);
+        } finally {
+          await loadingTask.destroy();
+        }
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    },
+    30_000,
+  );
 
   it("圧縮時に既存の固定sidecarファイルを変更しない", async () => {
     const directory = await mkdtemp(join(tmpdir(), "mdpdf-compress-sidecar-"));
